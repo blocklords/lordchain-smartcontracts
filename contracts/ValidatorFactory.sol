@@ -9,21 +9,19 @@ import "./interfaces/IValidator.sol";
 contract  ValidatorFactory is IValidatorFactory {
     address public immutable implementation;
 
-    bool public isPaused;
     address public pauser;
-    
-    uint256 public depositFee;
-    uint256 public claimFee;
-    uint256 public constant MAX_FEE = 300; // 3%
-
     address public feeManager;
     address public voter;
-    
-    mapping(address => mapping(address => address)) private _validatorList;
+    address public admin;
+
     address[] public allValidators;
+    
+    mapping(address => mapping(address => mapping(uint256 => address))) private _validatorList;
+    mapping(address => uint256) private _validatorCount; // 用于存储每个钱包地址的 validator 数量
     mapping(address => bool) private _isValidator;
     mapping(address => uint256) public customDepositFee;
     mapping(address => uint256) public customClaimFee;
+    mapping(address => bool) public isPaused;
 
     
     constructor(address _implementation) {
@@ -31,9 +29,8 @@ contract  ValidatorFactory is IValidatorFactory {
         voter = msg.sender;
         pauser = msg.sender;
         feeManager = msg.sender;
-        isPaused = false;
-        depositFee = 5; // 0.05%
-        claimFee = 30; // 0.3%
+        admin = msg.sender;
+        isPaused[_implementation] = false;
     }
 
     /// @inheritdoc IValidatorFactory
@@ -42,8 +39,8 @@ contract  ValidatorFactory is IValidatorFactory {
     }
 
     /// @inheritdoc IValidatorFactory
-    function getValidator(address token, address owner) external view returns (address) {
-        return _validatorList[token][owner];
+    function getValidator(address token, address owner, uint256 _validatorId) external view returns (address) {
+        return _validatorList[token][owner][_validatorId];
     }
 
     /// @inheritdoc IValidatorFactory
@@ -65,10 +62,10 @@ contract  ValidatorFactory is IValidatorFactory {
         emit SetPauser(_pauser);
     }
 
-    function setPauseState(bool _state) external {
+    function setPauseState(address _validator, bool _state) external {
         if (msg.sender != pauser) revert NotPauser();
-        isPaused = _state;
-        emit SetPauseState(_state);
+        isPaused[_validator] = _state;
+        emit SetPauseState(_validator, _state);
     }
 
     function setFeeManager(address _feeManager) external {
@@ -77,54 +74,46 @@ contract  ValidatorFactory is IValidatorFactory {
         feeManager = _feeManager;
         emit SetFeeManager(_feeManager);
     }
-    
-    /// @inheritdoc IValidatorFactory
-    function setFee(bool _type, uint256 _fee) external {
-        if (msg.sender != feeManager) revert NotFeeManager();
-        if (_fee > MAX_FEE) revert FeeTooHigh();
-        if (_fee == 0) revert ZeroFee();
-        if (_type) {
-            depositFee = _fee;
-        } else {
-            claimFee = _fee;
-        }
-    }
 
-    /// @inheritdoc IValidatorFactory
-    function setDepositCustomFee(address validator, uint256 fee) external {
-        if (msg.sender != feeManager) revert NotFeeManager();
-        // if (fee > MAX_FEE && fee != ZERO_FEE_INDICATOR) revert FeeTooHigh();
-        if (fee > MAX_FEE) revert FeeTooHigh();
-        if (!_isValidator[validator]) revert InvalidValidator();
+    // /// @inheritdoc IValidatorFactory
+    // function setDepositCustomFee(address validator, uint256 fee) external {
+    //     if (msg.sender != feeManager) revert NotFeeManager();
+    //     // if (fee > MAX_FEE && fee != ZERO_FEE_INDICATOR) revert FeeTooHigh();
+    //     if (fee > MAX_FEE) revert FeeTooHigh();
+    //     if (!_isValidator[validator]) revert InvalidValidator();
 
-        customDepositFee[validator] = fee;
-        emit SetDepositCustomFee(validator, fee);
-    }
+    //     customDepositFee[validator] = fee;
+    //     emit SetDepositCustomFee(validator, fee);
+    // }
 
-    /// @inheritdoc IValidatorFactory
-    function setClaimCustomFee(address validator, uint256 fee) external {
-        if (msg.sender != feeManager) revert NotFeeManager();
-        // if (fee > MAX_FEE && fee != ZERO_FEE_INDICATOR) revert FeeTooHigh();
-        if (fee > MAX_FEE) revert FeeTooHigh();
-        if (!_isValidator[validator]) revert InvalidValidator();
+    // /// @inheritdoc IValidatorFactory
+    // function setClaimCustomFee(address validator, uint256 fee) external {
+    //     if (msg.sender != feeManager) revert NotFeeManager();
+    //     // if (fee > MAX_FEE && fee != ZERO_FEE_INDICATOR) revert FeeTooHigh();
+    //     if (fee > MAX_FEE) revert FeeTooHigh();
+    //     if (!_isValidator[validator]) revert InvalidValidator();
 
-        customClaimFee[validator] = fee;
-        emit SetClaimCustomFee(validator, fee);
-    }
+    //     customClaimFee[validator] = fee;
+    //     emit SetClaimCustomFee(validator, fee);
+    // }
 
     /// @inheritdoc IValidatorFactory
     function createValidator(address _token, address _owner) public returns (address validator) {
         if (_token == address(0)) revert ZeroAddress();
+        
+        uint256 validatorId = _validatorCount[_owner];
 
-        if (_validatorList[_token][_owner] != address(0)) revert PoolAlreadyExists();
+        if (_validatorList[_token][_owner][validatorId] != address(0)) revert PoolAlreadyExists();
 
-        bytes32 salt = keccak256(abi.encodePacked(_token, _owner)); // salt includes stable as well, 3 parameters
+        _validatorCount[_owner]++;
+
+        bytes32 salt = keccak256(abi.encodePacked(_token, _owner, validatorId)); // salt includes stable as well, 3 parameters
        
         validator = Clones.cloneDeterministic(implementation, salt);
         
-        IValidator(validator).initialize(_token, _owner);
+        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId);
         
-        _validatorList[_token][_owner] = validator;
+        _validatorList[_token][_owner][validatorId] = validator;
 
         allValidators.push(validator);
 
@@ -132,4 +121,5 @@ contract  ValidatorFactory is IValidatorFactory {
 
         emit ValidatorCreated(_token, _owner, validator, allValidators.length);
     }
+
 }
