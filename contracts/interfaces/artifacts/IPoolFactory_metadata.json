@@ -1,0 +1,45 @@
+{
+	"compiler": {
+		"version": "0.8.28+commit.7893614a"
+	},
+	"language": "Solidity",
+	"output": {
+		"abi": [],
+		"devdoc": {
+			"kind": "dev",
+			"methods": {},
+			"version": 1
+		},
+		"userdoc": {
+			"kind": "user",
+			"methods": {},
+			"version": 1
+		}
+	},
+	"settings": {
+		"compilationTarget": {
+			"contracts/interfaces/IValidatorFactory.sol": "IPoolFactory"
+		},
+		"evmVersion": "cancun",
+		"libraries": {},
+		"metadata": {
+			"bytecodeHash": "ipfs"
+		},
+		"optimizer": {
+			"enabled": false,
+			"runs": 200
+		},
+		"remappings": []
+	},
+	"sources": {
+		"contracts/interfaces/IValidatorFactory.sol": {
+			"keccak256": "0x827842dc007ed3294f8e5697ca5bfbe74489389b83ae5ace4dbab7dd7831bd32",
+			"license": "MIT",
+			"urls": [
+				"bzz-raw://1e37cdfc262a4ec7b3c21e0aeb14893f4de7c9c29f474dc55372ac5e98467d4a",
+				"dweb:/ipfs/QmZ2x2xf23utsgKUfCvnLtaBhTu12DNuEjHHTEKzMpX9wA"
+			]
+		}
+	},
+	"version": 1
+}
