@@ -4,11 +4,12 @@ logs
 
 node_modules
 .env
+.states
 
 # Hardhat files
-/cache
-/artifacts
-/ignition
+cache
+artifacts
+ignition
 
 # TypeChain files
 /typechain
@@ -19,10 +20,8 @@ node_modules
 /coverage.json
 
 # Andy files
-/test/Andy
+Andy
 
-/contracts/interfaces/artifacts
-/contracts/artifacts
 
 # Hardhat Ignition default folder for deployments against a local node
 ignition/deployments/chain-31337
