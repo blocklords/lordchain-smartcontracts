@@ -35,10 +35,12 @@ contract Validator is IValidator, ReentrancyGuard {
         // mapping(uint256 => uint256) accruedRewards; // Mapping to store accrued rewards for each period
     }
 
+    bool public isClaimed;
+
     string private _name;
     string private _type;
-    address private _voter;
 
+    uint256 public lastRewardTime;
     uint256 public totalStaked;
     // Accrued token per share
     uint256 public accTokenPerShare;
@@ -47,6 +49,9 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public depositFee;
     uint256 public claimFee;
     uint256 public constant MAX_FEE = 1000; // 10%
+    uint256 public validatorId;
+    uint256 public currentRewardPeriodIndex;
+    uint256[] public validLockDurations;
 
     /// @inheritdoc IValidator
     address public token;
@@ -55,20 +60,14 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     address public factory;
     // The block number of the last validator update
-    uint256 public lastRewardTime;
-
+    address private _voter;
     address public admin;
     address public owner;
-    uint256 public validatorId;
 
-    uint256[] public validLockDurations;
 
     mapping(uint256 => RewardPeriod) public rewardPeriods;
-    uint256 public currentRewardPeriodIndex;
-
     // Mapping to store allocated reward ratio for each period
     mapping(uint256 => uint256) public rewardPeriodAllocatedRatios;
-
     // Info of each user that stakes tokens (stakedToken)
     mapping(address => UserInfo) public userInfo;
 
@@ -100,7 +99,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
 
     modifier onlyAdmin() {
-        require(msg.sender == address(admin), "! cake pool");
+        require(msg.sender == address(admin), "not Admin");
         _;
     }
 
@@ -111,7 +110,8 @@ contract Validator is IValidator, ReentrancyGuard {
         address _admin,
         address _token,
         address _owner,
-        uint256 _validatorId
+        uint256 _validatorId,
+        bool _isClaimed
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
         factory = msg.sender;
@@ -135,6 +135,7 @@ contract Validator is IValidator, ReentrancyGuard {
         validLockDurations.push(1 days);
 
         isVELrdsInitialized =  false;
+        isClaimed = _isClaimed;
     }
 
     
@@ -182,6 +183,8 @@ contract Validator is IValidator, ReentrancyGuard {
             pointHistory.push(Point({bias: 0, slope: 0, timestamp: block.timestamp, blockNumber: block.number}));
             isVELrdsInitialized = true;
         }
+        
+        IValidatorFactory(factory).AddTotalValidators(_startTime, _endTime, _totalReward);
 
         rewardPeriodAllocatedRatios[currentRewardPeriodIndex - 1] = 1;
     }
@@ -334,20 +337,25 @@ contract Validator is IValidator, ReentrancyGuard {
 
         _prevUser.rewardDebt = (_prevUser.amount * accTokenPerShare) / PRECISION_FACTOR;
 
+        IValidatorFactory(factory).AddTotalStakedAmount(_amount);
+        IValidatorFactory(factory).AddTotalStakedWallet();
+
         emit Deposit(msg.sender, _amount, _lockDuration, _prevUser.lockEndTime);
     }
 
-    function _claim(uint256 pending) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
-        if (pending == 0) return (0, 0);
+    function _claim(uint256 _pending) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
+        if (_pending == 0) return (0, 0);
 
-        if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).balanceOf(address(this)) < pending) revert NotEnoughRewardToken();
+        if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).balanceOf(address(this)) < _pending) revert NotEnoughRewardToken();
 
-        feeAmount = (pending * claimFee) / 10000; // claimFee (30 = 0.3%)
-        userClaimAmount = pending - feeAmount;
+        feeAmount = (_pending * claimFee) / 10000; // claimFee (30 = 0.3%)
+        userClaimAmount = _pending - feeAmount;
 
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(owner, feeAmount);
-
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(msg.sender, userClaimAmount);
+        
+        IValidatorFactory(factory).SubTotalStakedAmount(_pending);
+        IValidatorFactory(factory).SubTotalStakedWallet();
     }
 
     /// @notice Checks if a lock duration is valid.
@@ -527,7 +535,7 @@ contract Validator is IValidator, ReentrancyGuard {
                 // Handle when _newUser.lockEndTime != 0
                 if (_newUser.lockEndTime == _prevUser.lockEndTime) {
                     // This will happen when user adjust lock but end remains the same
-                    // Possibly when user deposited more Cake to his locker
+                    // Possibly when user deposited more LRDS to his locker
                     _newSlopeDelta = _prevSlopeDelta;
                 } else {
                     // This will happen when user increase lock
@@ -692,7 +700,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _fee The new fee percentage to set.
     /// @dev Only the owner can call this function.
     function setFee(bool _isDepositFee, uint256 _fee) external onlyAdmin {
-        if (msg.sender != owner) revert NotOwner();
         if (_fee > MAX_FEE) revert FeeTooHigh();
         if (_fee == 0) revert ZeroFee();
         if (_isDepositFee) {
@@ -706,7 +713,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _duration The duration to add to valid lock durations.
     /// @dev Only the admin can call this function.
     function addLockDuration(uint256 _duration) external onlyAdmin {
-        if (msg.sender != admin) revert NotAdmin();
         validLockDurations.push(_duration);
     }
 
@@ -715,7 +721,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _newDuration The new duration to set.
     /// @dev Only the admin can call this function.
     function updateLockDuration(uint256 _index, uint256 _newDuration) external onlyAdmin {
-        if (msg.sender != admin) revert NotAdmin();
         if (_index >= validLockDurations.length) revert InvalidLockDuration();
         validLockDurations[_index] = _newDuration;
     }
@@ -724,7 +729,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _index The index of the lock duration to remove.
     /// @dev Only the admin can call this function.
     function removeLockDuration(uint256 _index) external onlyAdmin {
-        if (msg.sender != admin) revert NotAdmin();
         if (_index >= validLockDurations.length) revert InvalidLockDuration();
 
         validLockDurations[_index] = validLockDurations[validLockDurations.length - 1];

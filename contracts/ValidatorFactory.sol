@@ -7,8 +7,18 @@ import "./interfaces/IValidatorFactory.sol";
 import "./interfaces/IValidator.sol";
 
 contract  ValidatorFactory is IValidatorFactory {
-    address public immutable implementation;
 
+    struct ValidatorInfo {
+        uint256 startTime;
+        uint256 endTime;
+        uint256 totalReward;
+    }
+
+    uint256 public totalStakedAmount;
+    uint256 public totalStakedWallet;
+    uint256 public validatorPeriodCount;
+
+    address public immutable implementation;
     address public pauser;
     address public feeManager;
     address public voter;
@@ -22,6 +32,7 @@ contract  ValidatorFactory is IValidatorFactory {
     mapping(address => uint256) public customDepositFee;
     mapping(address => uint256) public customClaimFee;
     mapping(address => bool) public isPaused;
+    mapping(uint256 => ValidatorInfo) public totalValidators;
 
     
     constructor(address _implementation) {
@@ -42,6 +53,52 @@ contract  ValidatorFactory is IValidatorFactory {
     function getValidator(address token, address owner, uint256 _validatorId) external view returns (address) {
         return _validatorList[token][owner][_validatorId];
     }
+
+    /// @inheritdoc IValidatorFactory
+    function AddTotalStakedAmount(uint256 _amount) external {
+        totalStakedAmount += _amount;
+    }
+
+    /// @inheritdoc IValidatorFactory
+    function SubTotalStakedAmount(uint256 _amount) external {
+        require(totalStakedAmount >= _amount, "Insufficient staked amount to subtract");
+        totalStakedAmount -= _amount;
+    }
+
+    /// @inheritdoc IValidatorFactory
+    function AddTotalStakedWallet() external {
+        totalStakedWallet++;
+    }
+    
+    /// @inheritdoc IValidatorFactory
+    function SubTotalStakedWallet() external {
+        require(totalStakedWallet > 0, "No staked wallets to subtract");
+        totalStakedWallet--;
+    }
+
+    /// @inheritdoc IValidatorFactory
+    function AddTotalValidators(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external {
+        totalValidators[validatorPeriodCount++] = ValidatorInfo(_startTime, _endTime, _totalReward);
+    }
+
+    function getTotalValidatorRewards() external view returns (uint256) {
+        uint256 totalValidatorRewards = 0;
+
+        for (uint256 i = 0; i < validatorPeriodCount; i++) {
+            uint256 period = 0;
+            if (block.timestamp > totalValidators[i].startTime) {
+                period = block.timestamp - totalValidators[i].startTime ;
+                if (block.timestamp > totalValidators[i].endTime) {
+                    period = totalValidators[i].endTime - totalValidators[i].startTime;
+                }
+            }
+
+            uint256 duration = totalValidators[i].endTime - totalValidators[i].startTime;
+            totalValidatorRewards += (period * totalValidators[i].totalReward) / duration;
+        }
+        return totalValidatorRewards;
+    }
+
 
     /// @inheritdoc IValidatorFactory
     function isValidatorl(address pool) external view returns (bool) {
@@ -98,7 +155,7 @@ contract  ValidatorFactory is IValidatorFactory {
     // }
 
     /// @inheritdoc IValidatorFactory
-    function createValidator(address _token, address _owner) public returns (address validator) {
+    function createValidator(address _token, address _owner, bool _isClaimed) public returns (address validator) {
         if (_token == address(0)) revert ZeroAddress();
         
         uint256 validatorId = _validatorCount[_owner];
@@ -111,7 +168,7 @@ contract  ValidatorFactory is IValidatorFactory {
        
         validator = Clones.cloneDeterministic(implementation, salt);
         
-        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId);
+        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId, _isClaimed);
         
         _validatorList[_token][_owner][validatorId] = validator;
 

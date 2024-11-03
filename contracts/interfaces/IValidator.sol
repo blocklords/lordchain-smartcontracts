@@ -2,7 +2,6 @@
 pragma solidity ^0.8.28;
 
 interface IValidator {
-    error NotAdmin();
     error NotOwner();
     error FeeTooHigh();
     error ZeroFee();
@@ -46,8 +45,9 @@ interface IValidator {
     /// @param _token The address of the token that users will stake.
     /// @param _owner The address of the contract owner.
     /// @param _validatorId The unique identifier for the validator.
+    /// @param _isClaimed Whether the validator is purchased.
     /// @dev This function can only be called once to set up the contract.
-    function initialize(address _admin, address _token, address _owner, uint256 _validatorId) external;
+    function initialize(address _admin, address _token, address _owner, uint256 _validatorId, bool _isClaimed) external;
 
     /// @notice Creates a new lock for a specified amount of tokens with a defined duration.
     /// @param _amount The amount of tokens to lock.

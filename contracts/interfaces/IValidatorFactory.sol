@@ -53,13 +53,24 @@ interface IValidatorFactory {
 
     /// @notice Create a validator given token and owner
     /// @dev token order does not matter
-    /// @param token .
-    /// @param owner .
-    function createValidator(address token, address owner) external returns (address validator);
+    /// @param _token .
+    /// @param _owner .
+    /// @param _isClaimed .
+    function createValidator(address _token, address _owner, bool _isClaimed) external returns (address validator);
 
     // function isPaused() external view returns (bool);
 
     function voter() external view returns (address);
 
     function implementation() external view returns (address);
+
+    function AddTotalStakedAmount(uint256 _amount) external;
+
+    function SubTotalStakedAmount(uint256 _amount) external;
+    
+    function AddTotalStakedWallet() external;
+
+    function SubTotalStakedWallet() external;
+
+    function AddTotalValidators(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external;
 }
