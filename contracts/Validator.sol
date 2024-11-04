@@ -138,8 +138,6 @@ contract Validator is IValidator, ReentrancyGuard {
         isClaimed = _isClaimed;
     }
 
-    
-
     /// @notice Sets a new reward period for staking.
     /// @param _startTime The start time of the reward period (must be in the future).
     /// @param _endTime The end time of the reward period (must be after start time).
@@ -153,8 +151,7 @@ contract Validator is IValidator, ReentrancyGuard {
         address _stakeToken,
         address _rewardToken,
         uint256 _totalReward
-    ) external nonReentrant {
-        if (msg.sender != admin) revert NotAdmin();
+    ) external nonReentrant onlyAdmin {
 
         // Check if total reward is greater than 0
         if (_totalReward <= 0) revert InvalidTotalReward();
@@ -304,7 +301,7 @@ contract Validator is IValidator, ReentrancyGuard {
     function _deposit(address _for, uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
         _updateValidator();
 
-        UserInfo memory _prevUser = UserInfo({amount: _user.amount, lockStartTime:_user.lockStartTime, lockEndTime: _user.lockEndTime, rewardDebt:_user.rewardDebt});
+        UserInfo memory _prevUser = UserInfo(_user.amount, _user.lockStartTime, _user.lockEndTime, _user.rewardDebt);
 
         if (_amount > 0) {
             uint256 fee = (_amount * depositFee) / 10000; //  depositFee (5 = 0.05%)
@@ -689,17 +686,12 @@ contract Validator is IValidator, ReentrancyGuard {
         emit ClaimFees(msg.sender, claimed);
     }
 
-
-    
-    /*//////////////////////////////////////////////////////////////
-                               ADMIN
-    //////////////////////////////////////////////////////////////*/
-    
     /// @notice Sets the deposit or claim fee for the contract.
     /// @param _isDepositFee A boolean indicating whether to set the deposit fee (true) or claim fee (false).
     /// @param _fee The new fee percentage to set.
     /// @dev Only the owner can call this function.
-    function setFee(bool _isDepositFee, uint256 _fee) external onlyAdmin {
+    function setFee(bool _isDepositFee, uint256 _fee) external {
+        if (msg.sender != owner) revert NotOwner();
         if (_fee > MAX_FEE) revert FeeTooHigh();
         if (_fee == 0) revert ZeroFee();
         if (_isDepositFee) {
@@ -708,6 +700,10 @@ contract Validator is IValidator, ReentrancyGuard {
             claimFee = _fee;
         }
     }
+    
+    /*//////////////////////////////////////////////////////////////
+                               ADMIN
+    //////////////////////////////////////////////////////////////*/
 
     /// @notice Adds a new valid lock duration.
     /// @param _duration The duration to add to valid lock durations.
