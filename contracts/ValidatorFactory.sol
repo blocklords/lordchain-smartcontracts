@@ -29,8 +29,6 @@ contract  ValidatorFactory is IValidatorFactory {
     mapping(address => mapping(address => mapping(uint256 => address))) private _validatorList;
     mapping(address => uint256) private _validatorCount;
     mapping(address => bool) private _isValidator;
-    mapping(address => uint256) public customDepositFee;
-    mapping(address => uint256) public customClaimFee;
     mapping(address => bool) public isPaused;
     mapping(uint256 => ValidatorInfo) public totalValidators;
     mapping(uint256 => uint256) public minAmountForQuality;
@@ -67,28 +65,33 @@ contract  ValidatorFactory is IValidatorFactory {
 
     /// @inheritdoc IValidatorFactory
     function AddTotalStakedAmount(uint256 _amount) external {
+        if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         totalStakedAmount += _amount;
     }
 
     /// @inheritdoc IValidatorFactory
     function SubTotalStakedAmount(uint256 _amount) external {
+        if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         if (totalStakedAmount < _amount) revert NotEnoughAmount();
         totalStakedAmount -= _amount;
     }
 
     /// @inheritdoc IValidatorFactory
     function AddTotalStakedWallet() external {
+        if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         totalStakedWallet++;
     }
     
     /// @inheritdoc IValidatorFactory
     function SubTotalStakedWallet() external {
+        if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         if (totalStakedWallet < 0) revert NotEnoughWallet();
         totalStakedWallet--;
     }
 
     /// @inheritdoc IValidatorFactory
     function AddTotalValidators(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external {
+        if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         totalValidators[validatorPeriodCount++] = ValidatorInfo(_startTime, _endTime, _totalReward);
     }
 
@@ -146,28 +149,6 @@ contract  ValidatorFactory is IValidatorFactory {
     function setMinAmountForQuality(uint256 quality, uint256 amount) external onlyAdmin {
         minAmountForQuality[quality] = amount;
     }
-
-    // /// @inheritdoc IValidatorFactory
-    // function setDepositCustomFee(address validator, uint256 fee) external {
-    //     if (msg.sender != feeManager) revert NotFeeManager();
-    //     // if (fee > MAX_FEE && fee != ZERO_FEE_INDICATOR) revert FeeTooHigh();
-    //     if (fee > MAX_FEE) revert FeeTooHigh();
-    //     if (!_isValidator[validator]) revert InvalidValidator();
-
-    //     customDepositFee[validator] = fee;
-    //     emit SetDepositCustomFee(validator, fee);
-    // }
-
-    // /// @inheritdoc IValidatorFactory
-    // function setClaimCustomFee(address validator, uint256 fee) external {
-    //     if (msg.sender != feeManager) revert NotFeeManager();
-    //     // if (fee > MAX_FEE && fee != ZERO_FEE_INDICATOR) revert FeeTooHigh();
-    //     if (fee > MAX_FEE) revert FeeTooHigh();
-    //     if (!_isValidator[validator]) revert InvalidValidator();
-
-    //     customClaimFee[validator] = fee;
-    //     emit SetClaimCustomFee(validator, fee);
-    // }
 
     /// @inheritdoc IValidatorFactory
     function createValidator(address _token, address _owner, bool _isClaimed, uint256 _quality) public returns (address validator) {

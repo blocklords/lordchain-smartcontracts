@@ -46,6 +46,7 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public constant MULTIPLIER = 10**18;
 
     bool public isClaimed;
+    bool public isPaused;
 
     string public _name;
 
@@ -89,6 +90,16 @@ contract Validator is IValidator, ReentrancyGuard {
 
     modifier onlyOwner() {
         if (msg.sender != address(admin)) revert NotOwner();
+        _;
+    }
+    
+    modifier whenNotPaused() {
+        if (isPaused) revert ContractPaused();
+        _;
+    }
+
+    modifier onlyFactory() {
+        if (msg.sender != factory) revert NotFactory();
         _;
     }
 
@@ -138,6 +149,7 @@ contract Validator is IValidator, ReentrancyGuard {
         _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
 
         isClaimed = _isClaimed;
+        isPaused = false;
     }
 
     /// @notice Sets a new reward period for staking.
@@ -188,7 +200,7 @@ contract Validator is IValidator, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IValidator
-    function createLock(uint256 _amount, uint256 _lockDuration) external nonReentrant {
+    function createLock(uint256 _amount, uint256 _lockDuration) external nonReentrant whenNotPaused {
         if (_amount == 0) revert ZeroAmount();
         if (_lockDuration == 0 || _lockDuration < MIN_LOCK || _lockDuration > MAX_LOCK) revert WrongDuration();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
@@ -202,7 +214,7 @@ contract Validator is IValidator, ReentrancyGuard {
     }
 
     /// @inheritdoc IValidator
-    function increaseAmount(uint256 _amount) external nonReentrant {
+    function increaseAmount(uint256 _amount) external nonReentrant whenNotPaused {
         if (_amount == 0) revert ZeroAmount();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
@@ -216,7 +228,7 @@ contract Validator is IValidator, ReentrancyGuard {
     }
 
     /// @inheritdoc IValidator
-    function extendDuration(uint256 _lockDuration) external nonReentrant {
+    function extendDuration(uint256 _lockDuration) external nonReentrant whenNotPaused {
         if (_lockDuration == 0 || _lockDuration < MIN_LOCK || _lockDuration > MAX_LOCK) revert WrongDuration();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
@@ -229,7 +241,7 @@ contract Validator is IValidator, ReentrancyGuard {
     }
 
     /// @inheritdoc IValidator
-    function claim() external nonReentrant {
+    function claim() external nonReentrant whenNotPaused {
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
         UserInfo storage user = userInfo[msg.sender];
@@ -253,7 +265,7 @@ contract Validator is IValidator, ReentrancyGuard {
     }
 
     /// @inheritdoc IValidator
-    function withdraw() external nonReentrant {
+    function withdraw() external nonReentrant whenNotPaused {
         UserInfo storage user = userInfo[msg.sender];
 
         if (user.amount == 0) revert ZeroAmount();
@@ -288,7 +300,7 @@ contract Validator is IValidator, ReentrancyGuard {
     }
     
     /// @inheritdoc IValidator
-    function setAutoMax(bool _bool) external nonReentrant {
+    function setAutoMax(bool _bool) external nonReentrant whenNotPaused {
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
         if (user.autoMax == _bool) revert TheSameValue();
@@ -298,7 +310,7 @@ contract Validator is IValidator, ReentrancyGuard {
         emit SetAutoMax(msg.sender, _bool);
     }
 
-    function purchaseValidator(uint256 _np, uint256 _deadline, uint8 _v, bytes32 _r, bytes32 _s) external nonReentrant{
+    function purchaseValidator(uint256 _np, uint256 _deadline, uint8 _v, bytes32 _r, bytes32 _s) external nonReentrant whenNotPaused {
         if (_deadline < block.timestamp) revert SignatureExpired();
         if (_np <= 0) revert ZeroAmount();
         if (isClaimed == true) revert ValidatorIsClaimed();
@@ -529,7 +541,7 @@ contract Validator is IValidator, ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     /// @inheritdoc IValidator
-    function claimFees() external nonReentrant onlyOwner{
+    function claimFees() external nonReentrant whenNotPaused onlyOwner {
         uint256 claimed = ValidatorFees(validatorFees).claimFeesFor(msg.sender);
 
         emit ClaimFees(msg.sender, claimed);
@@ -538,7 +550,7 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @notice Sets the deposit fee for the contract.
     /// @param _fee The new fee percentage to set.
     /// @dev Only the owner can call this function.
-    function setDepositFee(uint256 _fee) external nonReentrant onlyOwner {
+    function setDepositFee(uint256 _fee) external nonReentrant whenNotPaused onlyOwner {
         if (_fee < 0) revert WrongFee();
         if (_fee > DEPOSIT_MAX_FEE) revert FeeTooHigh();
         depositFee = _fee;
@@ -549,7 +561,7 @@ contract Validator is IValidator, ReentrancyGuard {
     // @notice Sets the claim fee for the contract.
     /// @param _fee The new fee percentage to set.
     /// @dev Only the owner can call this function.
-    function setClaimFee(uint256 _fee) external nonReentrant onlyOwner {
+    function setClaimFee(uint256 _fee) external nonReentrant whenNotPaused onlyOwner {
         if (_fee < 0) revert WrongFee();
         if (_fee > CLAIM_MAX_FEE) revert FeeTooHigh();
         claimFee = _fee;
@@ -580,5 +592,13 @@ contract Validator is IValidator, ReentrancyGuard {
     function setMasterValidator(address _validator) external onlyAdmin {
         if (_validator == address(0)) revert ZeroAddress();
         masterValidator = _validator;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               FACTORY
+    //////////////////////////////////////////////////////////////*/
+    
+    function setPauseState(bool _state) external onlyFactory {
+        isPaused = _state;
     }
 }

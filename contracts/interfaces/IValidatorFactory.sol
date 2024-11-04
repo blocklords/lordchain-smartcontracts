@@ -19,6 +19,7 @@ interface IValidatorFactory {
     error ZeroAddress();
     error NotEnoughAmount();
     error NotEnoughWallet();
+    error NotRegisteredValidator();
 
     /// @notice returns the number of validators created from this factory
     function allValidatorsLength() external view returns (uint256);

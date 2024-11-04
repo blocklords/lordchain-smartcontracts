@@ -5,6 +5,7 @@ interface IValidator {
     
     error NotAdmin();
     error NotOwner();
+    error NotFactory();
     error FeeTooHigh();
     error WrongFee();
     error ZeroAmount();
@@ -34,6 +35,7 @@ interface IValidator {
     error AutoMaxNotEnabled();
     error WrongDuration();
     error LockTimeExceeded();
+    error ContractPaused();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
