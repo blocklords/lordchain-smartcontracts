@@ -53,7 +53,6 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public constant CLAIM_MAX_FEE = 500;   // 5%
     uint256 public validatorId;
     uint256 public currentRewardPeriodIndex;
-    uint256[] public validLockDurations;
     uint256 public quality;
 
     /// @inheritdoc IValidator
@@ -159,14 +158,6 @@ contract Validator is IValidator, ReentrancyGuard {
         nodeCounts[_quality]++;
         _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
 
-
-        // validLockDurations.push(0);
-        // validLockDurations.push(10 minutes);
-        // validLockDurations.push(30 minutes);
-        // validLockDurations.push(1 hours);
-        // validLockDurations.push(4 hours);
-        // validLockDurations.push(1 days);
-
         isVELrdsInitialized =  false;
         isClaimed = _isClaimed;
     }
@@ -225,7 +216,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
     /// @inheritdoc IValidator
     function createLock(uint256 _amount, uint256 _lockDuration) external nonReentrant {
-        if (!_isValidLockDuration(_lockDuration)) revert InvalidLockDuration();
         if (_amount == 0) revert ZeroAmount();
         if (_lockDuration == 0) revert ZeroDuration();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
@@ -251,7 +241,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
     /// @inheritdoc IValidator
     function extendDuration(uint256 _lockDuration) external nonReentrant {
-        if (!_isValidLockDuration(_lockDuration)) revert InvalidLockDuration();
         if (_lockDuration == 0) revert ZeroDuration();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
@@ -456,18 +445,6 @@ contract Validator is IValidator, ReentrancyGuard {
         
     }
 
-    /// @notice Checks if a lock duration is valid.
-    /// @param _lockDuration The duration to check.
-    /// @return A boolean indicating whether the duration is valid.
-    function _isValidLockDuration(uint256 _lockDuration) internal view returns (bool) {
-        for (uint256 i = 0; i < validLockDurations.length; i++) {
-            if (validLockDurations[i] == _lockDuration) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /// @notice Checks if any reward period is currently active.
     /// @return A boolean indicating if any reward period is active.
     function _isRewardPeriodActive() internal view returns (bool) {
@@ -583,32 +560,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                ADMIN
     //////////////////////////////////////////////////////////////*/
-
-    /// @notice Adds a new valid lock duration.
-    /// @param _duration The duration to add to valid lock durations.
-    /// @dev Only the admin can call this function.
-    function addLockDuration(uint256 _duration) external onlyAdmin {
-        validLockDurations.push(_duration);
-    }
-
-    /// @notice Updates an existing lock duration.
-    /// @param _index The index of the lock duration to update.
-    /// @param _newDuration The new duration to set.
-    /// @dev Only the admin can call this function.
-    function updateLockDuration(uint256 _index, uint256 _newDuration) external onlyAdmin {
-        if (_index >= validLockDurations.length) revert InvalidLockDuration();
-        validLockDurations[_index] = _newDuration;
-    }
-
-    /// @notice Removes a lock duration from valid options.
-    /// @param _index The index of the lock duration to remove.
-    /// @dev Only the admin can call this function.
-    function removeLockDuration(uint256 _index) external onlyAdmin {
-        if (_index >= validLockDurations.length) revert InvalidLockDuration();
-
-        validLockDurations[_index] = validLockDurations[validLockDurations.length - 1];
-        validLockDurations.pop();
-    }
     
     /// @notice Sets a new name for the validator.
     /// @param _newName The new name to set.
