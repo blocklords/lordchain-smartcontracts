@@ -2,10 +2,11 @@
 pragma solidity ^0.8.28;
 
 interface IValidator {
+    
     error NotAdmin();
     error NotOwner();
     error FeeTooHigh();
-    error ZeroFee();
+    error WrongFee();
     error ZeroAmount();
     error ZeroDuration();
     error InvalidLockDuration();
@@ -26,11 +27,20 @@ interface IValidator {
     error TheSameValue();
     error AutoMaxTime();
     error QualityWrong();
+    error SignatureExpired();
+    error ValidatorIsClaimed();
+    error ZeroAddress();
+    error VerificationFailed();
+    error AutoMaxNotEnabled();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
     event Claim(address indexed sender, uint256 userClaimAmount, uint256 feeAmount);
     event Withdraw(address indexed sender, uint256 amount, uint256 userClaimAmount, uint256 feeAmount);
+    event SetAutoMax(address indexed sender, bool open);
+    event PurchaseValidator(address indexed sender, uint256 NP);
+    event SetDepositFee(address indexed sender, uint256 fee);
+    event SetClaimFee(address indexed sender, uint256 fee);
 
     /// @notice Claims accumulated fees for the contract owner.
     /// @dev Only the owner can call this function to claim fees.
@@ -74,9 +84,11 @@ interface IValidator {
     /// @dev Users can only withdraw after the lock duration has expired.
     function withdraw() external;
     
-    /// @notice Claims rewards for the user based on the staked amount.
+    /// @notice Claims rewards for the user based on the staked amount;
     /// @dev Users can claim rewards as long as the reward period is active.
     function claim() external;
 
     function setAutoMax(bool _bool) external;
+
+    function getAmountAndAutoMax(address _userAddress) external view returns (uint256, bool);
 }

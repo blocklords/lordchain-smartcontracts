@@ -27,14 +27,19 @@ contract  ValidatorFactory is IValidatorFactory {
     address[] public allValidators;
     
     mapping(address => mapping(address => mapping(uint256 => address))) private _validatorList;
-    mapping(address => uint256) private _validatorCount; // 用于存储每个钱包地址的 validator 数量
+    mapping(address => uint256) private _validatorCount;
     mapping(address => bool) private _isValidator;
     mapping(address => uint256) public customDepositFee;
     mapping(address => uint256) public customClaimFee;
     mapping(address => bool) public isPaused;
     mapping(uint256 => ValidatorInfo) public totalValidators;
+    mapping(uint256 => uint256) public minAmountForQuality;
 
-    
+    modifier onlyAdmin() {
+        if (msg.sender != address(admin)) revert NotAdmin();
+        _;
+    }
+
     constructor(address _implementation) {
         implementation = _implementation;
         voter = msg.sender;
@@ -42,6 +47,12 @@ contract  ValidatorFactory is IValidatorFactory {
         feeManager = msg.sender;
         admin = msg.sender;
         isPaused[_implementation] = false;
+        
+        minAmountForQuality[1] = 400;
+        minAmountForQuality[2] = 1000;
+        minAmountForQuality[3] = 3000;
+        minAmountForQuality[4] = 5000;
+        minAmountForQuality[5] = 10000;
     }
 
     /// @inheritdoc IValidatorFactory
@@ -130,6 +141,10 @@ contract  ValidatorFactory is IValidatorFactory {
         if (_feeManager == address(0)) revert ZeroAddress();
         feeManager = _feeManager;
         emit SetFeeManager(_feeManager);
+    }
+
+    function setMinAmountForQuality(uint256 quality, uint256 amount) external onlyAdmin {
+        minAmountForQuality[quality] = amount;
     }
 
     // /// @inheritdoc IValidatorFactory
