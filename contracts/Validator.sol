@@ -235,7 +235,17 @@ contract Validator is IValidator, ReentrancyGuard {
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
         if (user.autoMax == true) revert AutoMaxTime();
-        if (user.lockEndTime + _lockDuration > MAX_LOCK) revert GreaterThenMaxTime();
+
+        uint256 newEndTime;
+        if (block.timestamp > user.lockEndTime) {
+            // If lock has already expired, start from current time
+            newEndTime = block.timestamp + _lockDuration;
+        } else {
+            // Otherwise, extend from the current lock end time
+            newEndTime = user.lockEndTime + _lockDuration;
+        }
+
+        if (newEndTime > block.timestamp + MAX_LOCK) revert("GreaterThanMaxTime");
 
         _deposit(0, _lockDuration, user);
     }
@@ -381,9 +391,6 @@ contract Validator is IValidator, ReentrancyGuard {
     function _deposit(uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
         _updateValidator();
 
-        UserInfo memory _prevUser = UserInfo(_user.amount, _user.lockStartTime, _user.lockEndTime, _user.rewardDebt, _user.autoMax);
-        // UserInfo memory _prevUser = UserInfo(_user.amount, _user.lockStartTime, _user.lockEndTime);
-
         if (_amount > 0) {
             uint256 fee = (_amount * depositFee) / 10000; //  depositFee (5 = 0.05%)
             uint256 amountAfterFee = _amount - fee;
@@ -412,9 +419,9 @@ contract Validator is IValidator, ReentrancyGuard {
             _user.lockEndTime += _lockDuration;
         }
 
-        _prevUser.rewardDebt = (_prevUser.amount * accTokenPerShare) / PRECISION_FACTOR;
+        _user.rewardDebt = (_user.amount * accTokenPerShare) / PRECISION_FACTOR;
 
-        emit Deposit(msg.sender, _amount, _lockDuration, _prevUser.lockEndTime);
+        emit Deposit(msg.sender, _amount, _lockDuration, _user.lockEndTime);
     }
 
     function _claim(uint256 _pending) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
