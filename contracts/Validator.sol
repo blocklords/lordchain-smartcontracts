@@ -41,7 +41,8 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public constant CLAIM_MAX_FEE = 500;   // 5%
     uint256 public constant WEEK = 7 days;
     uint256 public constant MAX_LOCK = (209 * WEEK) - 1; // MAX_LOCK 209 weeks - 1 seconds
-    uint256 public constant MIN_LOCK = WEEK;
+    // uint256 public constant MIN_LOCK = WEEK;
+    uint256 public constant MIN_LOCK = 520;
     uint256 public constant MULTIPLIER = 10**18;
 
     bool public isClaimed;
@@ -80,29 +81,6 @@ contract Validator is IValidator, ReentrancyGuard {
     // Info of each user that stakes tokens (stakedToken)
     mapping(address => UserInfo) public userInfo;
     mapping(uint256 => uint256) public nodeCounts;
-
-    /*//////////////////////////////////////////////////////////////
-                               VELRDS
-    //////////////////////////////////////////////////////////////*/
-    struct Point {
-        int128 bias; // Voting weight
-        int128 slope; // Multiplier factor to get voting weight at a given time
-        uint256 timestamp;
-        uint256 blockNumber;
-    }
-
-    bool public isVELrdsInitialized;
-    // A global point of time.
-    uint256 public epoch;
-    // An array of points (global).
-    Point[] public pointHistory;
-    // Mapping (user => Point) to keep track of user point of a given epoch (index of Point is epoch)
-    mapping(address => Point[]) public userPointHistory;
-    // Mapping (user => epoch) to keep track which epoch user at
-    mapping(address => uint256) public userPointEpoch;
-    // Mapping (round off timestamp to week => slopeDelta) to keep track slope changes over epoch
-    mapping(uint256 => int128) public slopeChanges;
-
 
     modifier onlyAdmin() {
         if (msg.sender != address(admin)) revert NotAdmin();
@@ -159,7 +137,6 @@ contract Validator is IValidator, ReentrancyGuard {
         nodeCounts[_quality]++;
         _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
 
-        isVELrdsInitialized =  false;
         isClaimed = _isClaimed;
     }
 
@@ -201,11 +178,6 @@ contract Validator is IValidator, ReentrancyGuard {
             totalReward: _totalReward
         });
         
-        if(!isVELrdsInitialized) {
-            pointHistory.push(Point({bias: 0, slope: 0, timestamp: block.timestamp, blockNumber: block.number}));
-            isVELrdsInitialized = true;
-        }
-        
         IValidatorFactory(factory).AddTotalValidators(_startTime, _endTime, _totalReward);
 
         rewardPeriodAllocatedRatios[currentRewardPeriodIndex - 1] = 1;
@@ -226,7 +198,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         IValidatorFactory(factory).AddTotalStakedWallet();
 
-        _deposit(msg.sender, _amount, _lockDuration, user);
+        _deposit(_amount, _lockDuration, user);
     }
 
     /// @inheritdoc IValidator
@@ -240,7 +212,7 @@ contract Validator is IValidator, ReentrancyGuard {
             if (block.timestamp > user.lockEndTime) revert LockTimeExceeded();
         }
 
-        _deposit(msg.sender, _amount, 0, user);
+        _deposit(_amount, 0, user);
     }
 
     /// @inheritdoc IValidator
@@ -253,7 +225,7 @@ contract Validator is IValidator, ReentrancyGuard {
         if (user.autoMax == true) revert AutoMaxTime();
         if (user.lockEndTime + _lockDuration > MAX_LOCK) revert GreaterThenMaxTime();
 
-        _deposit(msg.sender, 0, _lockDuration, user);
+        _deposit(0, _lockDuration, user);
     }
 
     /// @inheritdoc IValidator
@@ -394,7 +366,7 @@ contract Validator is IValidator, ReentrancyGuard {
         return (info.amount, info.autoMax);
     }
 
-    function _deposit(address _for, uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
+    function _deposit(uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
         _updateValidator();
 
         UserInfo memory _prevUser = UserInfo(_user.amount, _user.lockStartTime, _user.lockEndTime, _user.rewardDebt, _user.autoMax);
@@ -427,9 +399,6 @@ contract Validator is IValidator, ReentrancyGuard {
         if (_lockDuration > 0 && _amount == 0) {
             _user.lockEndTime += _lockDuration;
         }
-
-        // Handling checkpoint here
-        // _checkpoint(_for, _prevUser, _user);
 
         _prevUser.rewardDebt = (_prevUser.amount * accTokenPerShare) / PRECISION_FACTOR;
 
@@ -526,6 +495,33 @@ contract Validator is IValidator, ReentrancyGuard {
         //     rewardPeriodAllocatedRatios[_periodIndex] *
         //     timeBasedRatio) / totalStaked;
         // return userRewardRatio - _user.accruedRewards[_periodIndex];
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               VELRDS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Return the voting weight of a givne user
+    /// @param _user The address of a user
+    function veLrdsBalance(address _user) external view returns (uint256) {
+         UserInfo storage user = userInfo[_user];
+
+        // If user has no amount staked or if not the master validator, return 0
+        if (user.amount == 0 || quality != 0) return 0;
+
+        // Determine the effective lock end time
+        uint256 effectiveLockEndTime = user.autoMax ? block.timestamp + MAX_LOCK : user.lockEndTime;
+
+        // Ensure the lock period has not expired
+        if (block.timestamp >= effectiveLockEndTime) return 0;
+
+        // Calculate the duration remaining until the effective lock end time
+        uint256 duration = effectiveLockEndTime - block.timestamp;
+
+        // Calculate veLrds based on remaining lock duration
+        uint256 veLrds = (user.amount * duration) / MAX_LOCK;
+
+        return veLrds;
     }
 
     /*//////////////////////////////////////////////////////////////
