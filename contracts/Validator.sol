@@ -32,7 +32,7 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 lockStartTime; // lock start time.
         uint256 lockEndTime; // lock end time.
         uint256 rewardDebt; // Reward debt
-        // mapping(uint256 => uint256) accruedRewards; // Mapping to store accrued rewards for each period
+        bool autoMax;
     }
 
     bool public isClaimed;
@@ -70,6 +70,7 @@ contract Validator is IValidator, ReentrancyGuard {
     mapping(uint256 => uint256) public rewardPeriodAllocatedRatios;
     // Info of each user that stakes tokens (stakedToken)
     mapping(address => UserInfo) public userInfo;
+    mapping(uint256 => uint256) public nodeCounts;
 
     /*//////////////////////////////////////////////////////////////
                                VELRDS
@@ -99,7 +100,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
 
     modifier onlyAdmin() {
-        require(msg.sender == address(admin), "not Admin");
+        if (msg.sender != address(admin)) revert NotAdmin();
         _;
     }
 
@@ -111,28 +112,81 @@ contract Validator is IValidator, ReentrancyGuard {
         address _token,
         address _owner,
         uint256 _validatorId,
-        bool _isClaimed
+        bool _isClaimed,
+        uint256 _quality
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
         factory = msg.sender;
         _voter = IValidatorFactory(factory).voter();
         (admin, token, owner, validatorId) = (_admin, _token, _owner, _validatorId);
 
-        validatorFees = address(new ValidatorFees(token));
-
-        string memory symbol = ERC20(_token).symbol();
-        _name = string(abi.encodePacked("Stable AMM - ", symbol));
-
         depositFee = 100; // 1%
         claimFee = 500; // 5%
         PRECISION_FACTOR = 10 ** 12;
 
+        validatorFees = address(new ValidatorFees(token));
+
+        string memory nodeType;
+        if (_quality == 0) {
+            nodeType = "Master Validator";
+            depositFee = 0;
+            claimFee = 0;
+        } else if (_quality == 1) {
+            nodeType = "Standard Validator";
+        } else if (_quality == 2) {
+            nodeType = "Special Validator";
+        } else if (_quality == 3) {
+            nodeType = "Rare Validator";
+        } else if (_quality == 4) {
+            nodeType = "Epic Validator";
+        } else if (_quality == 5) {
+            nodeType = "Legendary Validator";
+        } else if (_quality == 6) {
+            nodeType = "Super Validator";
+        } else {
+            revert QualityWrong();
+        }
+        nodeCounts[_quality]++;
+        _name = string(abi.encodePacked(nodeType, " ", nodeCounts[_quality]));
+
+
+        // validLockDurations.push(0);
+        // validLockDurations.push(10 minutes);
+        // validLockDurations.push(30 minutes);
+        // validLockDurations.push(1 hours);
+        // validLockDurations.push(4 hours);
+        // validLockDurations.push(1 days);
+
+        /* Test time */
         validLockDurations.push(0);
-        validLockDurations.push(10 minutes);
-        validLockDurations.push(30 minutes);
-        validLockDurations.push(1 hours);
-        validLockDurations.push(4 hours);
-        validLockDurations.push(1 days);
+        validLockDurations.push(520);
+        validLockDurations.push(1040);
+        validLockDurations.push(1560);
+        validLockDurations.push(2080);
+        validLockDurations.push(2600);
+        validLockDurations.push(3120);
+        validLockDurations.push(3640);
+        validLockDurations.push(4160);
+        validLockDurations.push(4680);
+        validLockDurations.push(5200);
+        validLockDurations.push(5720);
+        validLockDurations.push(6240);
+        validLockDurations.push(6760);
+        validLockDurations.push(7280);
+        validLockDurations.push(7800);
+        validLockDurations.push(8320);
+        validLockDurations.push(8840);
+        validLockDurations.push(9360);
+        validLockDurations.push(9880);
+        validLockDurations.push(10400);
+        validLockDurations.push(10920);
+        validLockDurations.push(11440);
+        validLockDurations.push(11960);
+        validLockDurations.push(12480);
+        validLockDurations.push(13000);
+        validLockDurations.push(13520);
+        validLockDurations.push(14040);
+        validLockDurations.push(14560);
 
         isVELrdsInitialized =  false;
         isClaimed = _isClaimed;
@@ -200,6 +254,8 @@ contract Validator is IValidator, ReentrancyGuard {
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount > 0 || user.lockStartTime > 0) revert AllreadyLocked();
 
+        IValidatorFactory(factory).AddTotalStakedWallet();
+
         _deposit(msg.sender, _amount, _lockDuration, user);
     }
 
@@ -222,6 +278,8 @@ contract Validator is IValidator, ReentrancyGuard {
 
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
+        if (user.lockEndTime + _lockDuration > MAX_LOCK) revert GreaterThenMaxTime();
+        if (user.autoMax == true) revert AutoMaxTime();
 
         _deposit(msg.sender, 0, _lockDuration, user);
     }
@@ -256,6 +314,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         if (user.amount == 0) revert ZeroAmount();
         if (block.timestamp < user.lockEndTime) revert TimeNotUp();
+        if (user.autoMax == true) revert AutoMaxTime();
 
         _updateValidator();
 
@@ -268,14 +327,29 @@ contract Validator is IValidator, ReentrancyGuard {
             // user.accruedRewards[i] += pending;
         }
 
-        (uint256 userClaimAmount, uint256 feeAmount) = _claim(totalPending);
+        (uint256 userWithdrawAmount, uint256 feeAmount) = _claim(totalPending);
 
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransfer(address(msg.sender), user.amount);
+        
+        user.rewardDebt = (user.amount * accTokenPerShare) / PRECISION_FACTOR;
 
         totalStaked -= user.amount;
         delete userInfo[msg.sender];
 
-        emit Withdraw(msg.sender, user.amount, userClaimAmount, feeAmount);
+        IValidatorFactory(factory).SubTotalStakedAmount(userWithdrawAmount);
+        IValidatorFactory(factory).SubTotalStakedWallet();
+        
+
+        emit Withdraw(msg.sender, user.amount, userWithdrawAmount, feeAmount);
+    }
+    
+    /// @inheritdoc IValidator
+    function setAutoMax(bool _bool) external nonReentrant {
+        UserInfo storage user = userInfo[msg.sender];
+
+        if (user.autoMax == _bool) revert TheSameValue();
+        user.autoMax = _bool;
+
     }
 
     /// @notice Gets the pending rewards for a user.
@@ -298,10 +372,28 @@ contract Validator is IValidator, ReentrancyGuard {
         return totalPending;
     }
 
+    // function getValidatorRewards() external view returns (uint256) {
+    //     uint256 totalRewards = 0;
+    //     for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
+    //         uint256 period = 0;
+    //         if (block.timestamp > rewardPeriods[i].startTime) {
+    //             period = block.timestamp - rewardPeriods[i].startTime;
+    //             if (block.timestamp > rewardPeriods[i].endTime) {
+    //                 period = rewardPeriods[i].endTime - rewardPeriods[i].startTime;
+    //             }
+    //         }
+
+    //         uint256 duration = rewardPeriods[i].endTime - rewardPeriods[i].startTime;
+    //         totalRewards += (period * rewardPeriods[i].totalReward) / duration;
+    //     }
+    //     return totalRewards;
+    // }
+
     function _deposit(address _for, uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
         _updateValidator();
 
-        UserInfo memory _prevUser = UserInfo(_user.amount, _user.lockStartTime, _user.lockEndTime, _user.rewardDebt);
+        UserInfo memory _prevUser = UserInfo(_user.amount, _user.lockStartTime, _user.lockEndTime, _user.rewardDebt, _user.autoMax);
+        // UserInfo memory _prevUser = UserInfo(_user.amount, _user.lockStartTime, _user.lockEndTime);
 
         if (_amount > 0) {
             uint256 fee = (_amount * depositFee) / 10000; //  depositFee (5 = 0.05%)
@@ -317,12 +409,14 @@ contract Validator is IValidator, ReentrancyGuard {
             }
 
             _user.amount += amountAfterFee;
-            totalStaked += amountAfterFee;
+            totalStaked += _user.amount;
 
             if (_lockDuration > 0) {
                 _user.lockStartTime = block.timestamp;
                 _user.lockEndTime = _lockDuration + block.timestamp;
             }
+
+            IValidatorFactory(factory).AddTotalStakedAmount(amountAfterFee);
         }
 
         if (_lockDuration > 0 && _amount == 0) {
@@ -333,9 +427,6 @@ contract Validator is IValidator, ReentrancyGuard {
         _checkpoint(_for, _prevUser, _user);
 
         _prevUser.rewardDebt = (_prevUser.amount * accTokenPerShare) / PRECISION_FACTOR;
-
-        IValidatorFactory(factory).AddTotalStakedAmount(_amount);
-        IValidatorFactory(factory).AddTotalStakedWallet();
 
         emit Deposit(msg.sender, _amount, _lockDuration, _prevUser.lockEndTime);
     }
@@ -351,8 +442,6 @@ contract Validator is IValidator, ReentrancyGuard {
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(owner, feeAmount);
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(msg.sender, userClaimAmount);
         
-        IValidatorFactory(factory).SubTotalStakedAmount(_pending);
-        IValidatorFactory(factory).SubTotalStakedWallet();
     }
 
     /// @notice Checks if a lock duration is valid.
@@ -372,10 +461,7 @@ contract Validator is IValidator, ReentrancyGuard {
     function _isRewardPeriodActive() internal view returns (bool) {
         for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
             RewardPeriod memory period = rewardPeriods[i];
-            if (
-                block.timestamp >= period.startTime &&
-                block.timestamp <= period.endTime
-            ) {
+            if ( block.timestamp >= period.startTime && block.timestamp <= period.endTime) {
                 return true;
             }
         }
@@ -469,9 +555,7 @@ contract Validator is IValidator, ReentrancyGuard {
             return 0;
         }
         Point memory _lastPoint = userPointHistory[_user][_epoch];
-        _lastPoint.bias =
-            _lastPoint.bias -
-            (_lastPoint.slope * SafeCast.toInt128(int256(_timestamp - _lastPoint.timestamp)));
+        _lastPoint.bias = _lastPoint.bias - (_lastPoint.slope * SafeCast.toInt128(int256(_timestamp - _lastPoint.timestamp)));
         if (_lastPoint.bias < 0) {
             _lastPoint.bias = 0;
         }
@@ -729,5 +813,12 @@ contract Validator is IValidator, ReentrancyGuard {
 
         validLockDurations[_index] = validLockDurations[validLockDurations.length - 1];
         validLockDurations.pop();
+    }
+    
+    /// @notice Sets a new name for the validator.
+    /// @param _newName The new name to set.
+    /// @dev Only the admin can call this function.
+    function setName(string calldata _newName) external onlyAdmin {
+        _name = _newName;
     }
 }

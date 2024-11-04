@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 interface IValidator {
+    error NotAdmin();
     error NotOwner();
     error FeeTooHigh();
     error ZeroFee();
@@ -21,6 +22,10 @@ interface IValidator {
     error EndTimeBeforeStartTime();
     error StartTimeNotAsExpected();
     error RewardPeriodNotActive();
+    error GreaterThenMaxTime();
+    error TheSameValue();
+    error AutoMaxTime();
+    error QualityWrong();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
@@ -47,7 +52,7 @@ interface IValidator {
     /// @param _validatorId The unique identifier for the validator.
     /// @param _isClaimed Whether the validator is purchased.
     /// @dev This function can only be called once to set up the contract.
-    function initialize(address _admin, address _token, address _owner, uint256 _validatorId, bool _isClaimed) external;
+    function initialize(address _admin, address _token, address _owner, uint256 _validatorId, bool _isClaimed, uint256 _quality) external;
 
     /// @notice Creates a new lock for a specified amount of tokens with a defined duration.
     /// @param _amount The amount of tokens to lock.
@@ -72,4 +77,6 @@ interface IValidator {
     /// @notice Claims rewards for the user based on the staked amount.
     /// @dev Users can claim rewards as long as the reward period is active.
     function claim() external;
+
+    function setAutoMax(bool _bool) external;
 }

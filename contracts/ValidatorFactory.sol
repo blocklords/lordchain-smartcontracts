@@ -61,7 +61,7 @@ contract  ValidatorFactory is IValidatorFactory {
 
     /// @inheritdoc IValidatorFactory
     function SubTotalStakedAmount(uint256 _amount) external {
-        require(totalStakedAmount >= _amount, "Insufficient staked amount to subtract");
+        if (totalStakedAmount < _amount) revert NotEnoughAmount();
         totalStakedAmount -= _amount;
     }
 
@@ -72,7 +72,7 @@ contract  ValidatorFactory is IValidatorFactory {
     
     /// @inheritdoc IValidatorFactory
     function SubTotalStakedWallet() external {
-        require(totalStakedWallet > 0, "No staked wallets to subtract");
+        if (totalStakedWallet < 0) revert NotEnoughWallet();
         totalStakedWallet--;
     }
 
@@ -155,7 +155,7 @@ contract  ValidatorFactory is IValidatorFactory {
     // }
 
     /// @inheritdoc IValidatorFactory
-    function createValidator(address _token, address _owner, bool _isClaimed) public returns (address validator) {
+    function createValidator(address _token, address _owner, bool _isClaimed, uint256 _quality) public returns (address validator) {
         if (_token == address(0)) revert ZeroAddress();
         
         uint256 validatorId = _validatorCount[_owner];
@@ -168,7 +168,7 @@ contract  ValidatorFactory is IValidatorFactory {
        
         validator = Clones.cloneDeterministic(implementation, salt);
         
-        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId, _isClaimed);
+        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId, _isClaimed, _quality);
         
         _validatorList[_token][_owner][validatorId] = validator;
 

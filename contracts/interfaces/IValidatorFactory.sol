@@ -17,6 +17,8 @@ interface IValidatorFactory {
     error NotAdmin();
     error PoolAlreadyExists();
     error ZeroAddress();
+    error NotEnoughAmount();
+    error NotEnoughWallet();
 
     /// @notice returns the number of validators created from this factory
     function allValidatorsLength() external view returns (uint256);
@@ -56,7 +58,8 @@ interface IValidatorFactory {
     /// @param _token .
     /// @param _owner .
     /// @param _isClaimed .
-    function createValidator(address _token, address _owner, bool _isClaimed) external returns (address validator);
+    /// @param _quality .
+    function createValidator(address _token, address _owner, bool _isClaimed, uint256 _quality) external returns (address validator);
 
     // function isPaused() external view returns (bool);
 
