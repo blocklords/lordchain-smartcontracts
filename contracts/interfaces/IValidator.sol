@@ -32,6 +32,8 @@ interface IValidator {
     error ZeroAddress();
     error VerificationFailed();
     error AutoMaxNotEnabled();
+    error WrongDuration();
+    error LockTimeExceeded();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);

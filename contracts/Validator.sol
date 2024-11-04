@@ -37,6 +37,13 @@ contract Validator is IValidator, ReentrancyGuard {
         bool autoMax;
     }
 
+    uint256 public constant DEPOSIT_MAX_FEE = 100; // 1%
+    uint256 public constant CLAIM_MAX_FEE = 500;   // 5%
+    uint256 public constant WEEK = 7 days;
+    uint256 public constant MAX_LOCK = (209 * WEEK) - 1; // MAX_LOCK 209 weeks - 1 seconds
+    uint256 public constant MIN_LOCK = WEEK;
+    uint256 public constant MULTIPLIER = 10**18;
+
     bool public isClaimed;
 
     string public _name;
@@ -49,8 +56,6 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public PRECISION_FACTOR;
     uint256 public depositFee;
     uint256 public claimFee;
-    uint256 public constant DEPOSIT_MAX_FEE = 100; // 1%
-    uint256 public constant CLAIM_MAX_FEE = 500;   // 5%
     uint256 public validatorId;
     uint256 public currentRewardPeriodIndex;
     uint256 public quality;
@@ -97,10 +102,6 @@ contract Validator is IValidator, ReentrancyGuard {
     mapping(address => uint256) public userPointEpoch;
     // Mapping (round off timestamp to week => slopeDelta) to keep track slope changes over epoch
     mapping(uint256 => int128) public slopeChanges;
-    uint256 public constant WEEK = 7 days;
-    // MAX_LOCK 209 weeks - 1 seconds
-    uint256 public constant MAX_LOCK = (209 * WEEK) - 1;
-    uint256 public constant MULTIPLIER = 10**18;
 
 
     modifier onlyAdmin() {
@@ -217,7 +218,7 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     function createLock(uint256 _amount, uint256 _lockDuration) external nonReentrant {
         if (_amount == 0) revert ZeroAmount();
-        if (_lockDuration == 0) revert ZeroDuration();
+        if (_lockDuration == 0 || _lockDuration < MIN_LOCK || _lockDuration > MAX_LOCK) revert WrongDuration();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
         UserInfo storage user = userInfo[msg.sender];
@@ -235,19 +236,22 @@ contract Validator is IValidator, ReentrancyGuard {
 
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
+        if (user.autoMax == false) {
+            if (block.timestamp > user.lockEndTime) revert LockTimeExceeded();
+        }
 
         _deposit(msg.sender, _amount, 0, user);
     }
 
     /// @inheritdoc IValidator
     function extendDuration(uint256 _lockDuration) external nonReentrant {
-        if (_lockDuration == 0) revert ZeroDuration();
+        if (_lockDuration == 0 || _lockDuration < MIN_LOCK || _lockDuration > MAX_LOCK) revert WrongDuration();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
-        if (user.lockEndTime + _lockDuration > MAX_LOCK) revert GreaterThenMaxTime();
         if (user.autoMax == true) revert AutoMaxTime();
+        if (user.lockEndTime + _lockDuration > MAX_LOCK) revert GreaterThenMaxTime();
 
         _deposit(msg.sender, 0, _lockDuration, user);
     }
@@ -314,7 +318,7 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     function setAutoMax(bool _bool) external nonReentrant {
         UserInfo storage user = userInfo[msg.sender];
-
+        if (user.amount == 0) revert NoLockCreated();
         if (user.autoMax == _bool) revert TheSameValue();
         user.autoMax = _bool;
         user.lockEndTime = block.timestamp + MAX_LOCK;
