@@ -7,6 +7,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Strings.sol";
+
 
 import "./interfaces/IValidatorFactory.sol";
 import "./interfaces/IValidator.sol";
@@ -37,8 +39,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
     bool public isClaimed;
 
-    string private _name;
-    string private _type;
+    string public _name;
 
     uint256 public lastRewardTime;
     uint256 public totalStaked;
@@ -156,7 +157,7 @@ contract Validator is IValidator, ReentrancyGuard {
             revert QualityWrong();
         }
         nodeCounts[_quality]++;
-        _name = string(abi.encodePacked(nodeType, " ", nodeCounts[_quality]));
+        _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
 
 
         // validLockDurations.push(0);
@@ -165,37 +166,6 @@ contract Validator is IValidator, ReentrancyGuard {
         // validLockDurations.push(1 hours);
         // validLockDurations.push(4 hours);
         // validLockDurations.push(1 days);
-
-        /* Test time */
-        validLockDurations.push(0);
-        validLockDurations.push(520);
-        validLockDurations.push(1040);
-        validLockDurations.push(1560);
-        validLockDurations.push(2080);
-        validLockDurations.push(2600);
-        validLockDurations.push(3120);
-        validLockDurations.push(3640);
-        validLockDurations.push(4160);
-        validLockDurations.push(4680);
-        validLockDurations.push(5200);
-        validLockDurations.push(5720);
-        validLockDurations.push(6240);
-        validLockDurations.push(6760);
-        validLockDurations.push(7280);
-        validLockDurations.push(7800);
-        validLockDurations.push(8320);
-        validLockDurations.push(8840);
-        validLockDurations.push(9360);
-        validLockDurations.push(9880);
-        validLockDurations.push(10400);
-        validLockDurations.push(10920);
-        validLockDurations.push(11440);
-        validLockDurations.push(11960);
-        validLockDurations.push(12480);
-        validLockDurations.push(13000);
-        validLockDurations.push(13520);
-        validLockDurations.push(14040);
-        validLockDurations.push(14560);
 
         isVELrdsInitialized =  false;
         isClaimed = _isClaimed;
