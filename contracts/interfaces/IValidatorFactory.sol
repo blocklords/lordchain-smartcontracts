@@ -18,8 +18,12 @@ interface IValidatorFactory {
     event SetPauseState(address validator, bool state);
     event SetVoter(address voter);
     event ValidatorCreated(address indexed token, address indexed owner, address validator, uint256 validatorLength);
+    /// @notice Returns the address of the current voter.
+    /// @dev This function allows access to the address of the voter who is responsible for validator-related operations.
+    /// @return address The address of the voter.
+    function voter() external view returns (address);
 
- /// @notice Returns the total number of validators in the system.
+    /// @notice Returns the total number of validators in the system.
     /// @dev This function provides the length of the validator list, indicating how many validators exist in the contract.
     /// @return uint256 The total number of validators.
     function allValidatorsLength() external view returns (uint256);

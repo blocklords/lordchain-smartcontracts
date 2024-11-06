@@ -24,55 +24,56 @@ contract Validator is IValidator, ReentrancyGuard {
 
     // RewardPeriod struct is used to record the details of a reward period
     struct RewardPeriod {
-        uint256 startTime; // The start time of the reward period
-        uint256 endTime;   // The end time of the reward period
-        address stakeToken; // The address of the token that users stake
-        address rewardToken; // The address of the token that is used as the reward
-        uint256 totalReward; // The total reward amount for this period
+        uint256 startTime;          // The start time of the reward period
+        uint256 endTime;            // The end time of the reward period
+        address stakeToken;         // The address of the token that users stake
+        address rewardToken;        // The address of the token that is used as the reward
+        uint256 totalReward;        // The total reward amount for this period
     }
 
     // UserInfo struct is used to store staking information for each user
     struct UserInfo {
-        uint256 amount; // The amount of tokens the user has staked
-        uint256 lockStartTime; // The start time of the staking lock period
-        uint256 lockEndTime; // The end time of the staking lock period
-        uint256 rewardDebt; // The reward debt, used to calculate the user's reward share
-        bool autoMax; // Indicates whether the user has enabled automatic maximum staking
+        uint256 amount;             // The amount of tokens the user has staked
+        uint256 lockStartTime;      // The start time of the staking lock period
+        uint256 lockEndTime;        // The end time of the staking lock period
+        uint256 rewardDebt;         // The reward debt, used to calculate the user's reward share
+        bool autoMax;               // Indicates whether the user has enabled automatic maximum staking
     }
 
-    uint256 public constant DEPOSIT_MAX_FEE = 100; // The maximum deposit fee (1%)
-    uint256 public constant CLAIM_MAX_FEE = 500;   // The maximum claim fee (5%)
-    uint256 public constant WEEK = 7 days; // One week in seconds
-    uint256 public constant MAX_LOCK = (209 * WEEK) - 1; // Maximum lock duration (209 weeks - 1 second)
-    uint256 public constant MIN_LOCK = 520; // Minimum lock duration (520 seconds)
-    uint256 public constant MULTIPLIER = 10**18; // The precision factor for reward calculations
+    uint256 public constant DEPOSIT_MAX_FEE = 100;          // The maximum deposit fee (1%)
+    uint256 public constant CLAIM_MAX_FEE = 500;            // The maximum claim fee (5%)
+    uint256 public constant WEEK = 7 days;                  // One week in seconds
+    uint256 public constant MAX_LOCK = (209 * WEEK) - 1;    // Maximum lock duration (209 weeks - 1 second)
+    // uint256 public constant MIN_LOCK = WEEK;             // Minimum lock duration (520 seconds) --> main
+    uint256 public constant MIN_LOCK = 520;                 // Minimum lock duration (520 seconds) -->test
+    uint256 public constant MULTIPLIER = 10**18;            // The precision factor for reward calculations
 
-    bool public isClaimed; // Flag to indicate whether the validator has been claimed
-    bool public isPaused;  // Flag to indicate whether the contract is paused
+    bool public isClaimed;                                  // Flag to indicate whether the validator has been claimed
+    bool public isPaused;                                   // Flag to indicate whether the contract is paused
 
-    string public _name; // The name of the validator contract
+    string public _name;                                    // The name of the validator contract
 
-    uint256 public lastRewardTime; // The last time rewards were distributed
-    uint256 public totalStaked; // The total amount of staked tokens
-    uint256 public accTokenPerShare; // The accumulated tokens per share
-    uint256 public PRECISION_FACTOR; // The precision factor for reward calculations
-    uint256 public depositFee; // The deposit fee percentage
-    uint256 public claimFee; // The claim fee percentage
-    uint256 public validatorId; // The unique identifier of the validator
-    uint256 public currentRewardPeriodIndex; // The current reward period index
-    uint256 public quality; // The quality level of the validator (e.g., Master, Super, etc.)
+    uint256 public lastRewardTime;                          // The last time rewards were distributed
+    uint256 public totalStaked;                             // The total amount of staked tokens
+    uint256 public accTokenPerShare;                        // The accumulated tokens per share
+    uint256 public PRECISION_FACTOR;                        // The precision factor for reward calculations
+    uint256 public depositFee;                              // The deposit fee percentage
+    uint256 public claimFee;                                // The claim fee percentage
+    uint256 public validatorId;                             // The unique identifier of the validator
+    uint256 public currentRewardPeriodIndex;                // The current reward period index
+    uint256 public quality;                                 // The quality level of the validator (e.g., Master, Super, etc.)
 
     /// @inheritdoc IValidator
-    address public token; // The address of the token used for staking
+    address public token;                                   // The address of the token used for staking
     /// @inheritdoc IValidator
-    address public validatorFees; // The address of the validator fees contract
+    address public validatorFees;                           // The address of the validator fees contract
     /// @inheritdoc IValidator
-    address public factory; // The address of the PoolFactory that created this contract
-    address private voter; // The address of the voter (for validation purposes)
-    address public admin; // The address of the contract admin
-    address public owner; // The address of the contract owner
-    address public verifier; // The address of the verifier for signature verification
-    address public masterValidator; // The address of the master validator contract
+    address public factory;                                 // The address of the PoolFactory that created this contract
+    address private voter;                                  // The address of the voter (for validation purposes)
+    address public admin;                                   // The address of the contract admin
+    address public owner;                                   // The address of the contract owner
+    address public verifier;                                // The address of the verifier for signature verification
+    address public masterValidator;                         // The address of the master validator contract
 
     // Mapping to store reward periods
     mapping(uint256 => RewardPeriod) public rewardPeriods;
