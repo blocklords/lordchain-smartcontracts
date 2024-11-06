@@ -17,7 +17,7 @@ interface IValidatorFactory {
     event SetPauser(address pauser);
     event SetPauseState(address validator, bool state);
     event SetVoter(address voter);
-    event ValidatorCreated(address indexed token, address indexed owner, address validator, uint256 validatorLength);
+    event ValidatorCreated(address indexed owner, address validator, uint256 validatorLength);
     /// @notice Returns the address of the current voter.
     /// @dev This function allows access to the address of the voter who is responsible for validator-related operations.
     /// @return address The address of the voter.
@@ -27,14 +27,6 @@ interface IValidatorFactory {
     /// @dev This function provides the length of the validator list, indicating how many validators exist in the contract.
     /// @return uint256 The total number of validators.
     function allValidatorsLength() external view returns (uint256);
-
-    /// @notice Retrieves the address of a validator given the token, owner, and validator ID.
-    /// @dev This function allows users to get the address of a specific validator by providing the associated token, owner address, and validator ID.
-    /// @param token The address of the token associated with the validator.
-    /// @param owner The address of the validator's owner.
-    /// @param validatorId The unique identifier for the validator.
-    /// @return address The address of the requested validator.
-    function getValidator(address token, address owner, uint256 validatorId) external view returns (address);
 
     /// @notice Checks if the provided address is a registered validator.
     /// @dev This function is used to verify if an address is recognized as a validator in the system.
@@ -63,13 +55,13 @@ interface IValidatorFactory {
     /// @param _feeManager The address of the new fee manager.
     function setFeeManager(address _feeManager) external;
 
-    /// @notice Creates a new validator for a given token, owner, and quality.
+    /// @notice Creates a new validator for a given owner, quality, and verifier.
     /// @dev This function is used to create a new validator, initializing it with the provided token address, owner address, and quality level.
-    /// @param _token The address of the token associated with the new validator.
     /// @param _owner The address of the validator's owner.
     /// @param _quality The quality level of the new validator.
+    /// @param _verifier The address of the verifier.
     /// @return validator The address of the newly created validator.
-    function createValidator(address _token, address _owner, uint256 _quality) external returns (address validator);
+    function createValidator(address _owner, uint256 _quality, address _verifier) external returns (address validator);
 
     /// @notice Increases the total staked amount by the specified amount.
     /// @dev This function is used to add a specified amount to the total staked amount across the system.

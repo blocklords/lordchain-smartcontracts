@@ -66,12 +66,12 @@ interface IValidator {
 
     /// @notice Initializes the Validator contract with necessary parameters.
     /// @param _admin The address of the admin who can manage the contract.
-    /// @param _token The address of the token that users will stake in the validator pool.
     /// @param _owner The address of the contract owner who can claim rewards and manage the pool.
     /// @param _validatorId The unique identifier for the validator. This will help distinguish different validators in the system.
     /// @param _quality The quality level of the validator (used for ranking or other features).
+    /// @param _verifier The address of the verifier.
     /// @dev This function can only be called once during the initialization phase to set up the validator contract with all necessary parameters.
-    function initialize(address _admin, address _token, address _owner, uint256 _validatorId, uint256 _quality) external;
+    function initialize(address _admin, address _owner, uint256 _validatorId, uint256 _quality, address _verifier) external;
 
     /// @notice Creates a new lock for a specified amount of tokens with a defined duration.
     /// @param _amount The amount of tokens to lock for the specified duration.

@@ -26,8 +26,6 @@ contract  ValidatorFactory is IValidatorFactory {
 
     address[] public allValidators;
     
-    mapping(address => mapping(address => mapping(uint256 => address))) private _validatorList;
-    mapping(address => uint256) private _validatorCount;
     mapping(address => bool) private _isValidator;
     mapping(address => bool) public isPaused;
     mapping(uint256 => ValidatorInfo) public totalValidators;
@@ -58,11 +56,6 @@ contract  ValidatorFactory is IValidatorFactory {
         return allValidators.length;
     }
 
-    /// @inheritdoc IValidatorFactory
-    function getValidator(address token, address owner, uint256 _validatorId) external view returns (address) {
-        return _validatorList[token][owner][_validatorId];
-    }
-    
     /// @inheritdoc IValidatorFactory
     function getValidators() external view returns (address[] memory) {
         return allValidators;
@@ -158,28 +151,23 @@ contract  ValidatorFactory is IValidatorFactory {
     }
 
     /// @inheritdoc IValidatorFactory
-    function createValidator(address _token, address _owner, uint256 _quality) public returns (address validator) {
-        if (_token == address(0)) revert ZeroAddress();
-        
-        uint256 validatorId = _validatorCount[_owner];
+    function createValidator(address _owner, uint256 _quality, address _verifier) public returns (address validator) {
+        uint256 validatorId = allValidators.length;  // Use the length of allValidators array as the validatorId
 
-        if (_validatorList[_token][_owner][validatorId] != address(0)) revert PoolAlreadyExists();
+        // Check if validator already exists by checking if the validatorId already exists in allValidators array
+        if (validatorId < allValidators.length && allValidators[validatorId] != address(0)) revert PoolAlreadyExists();
 
-        _validatorCount[_owner]++;
-
-        bytes32 salt = keccak256(abi.encodePacked(_token, _owner, validatorId)); // salt includes stable as well, 3 parameters
+        bytes32 salt = keccak256(abi.encodePacked(_quality, _owner, validatorId)); // salt includes stable as well, 3 parameters
        
         validator = Clones.cloneDeterministic(implementation, salt);
         
-        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId, _quality);
-        
-        _validatorList[_token][_owner][validatorId] = validator;
-
+        IValidator(validator).initialize(msg.sender, _owner, validatorId, _quality, _verifier);
+    
         allValidators.push(validator);
 
         _isValidator[validator] = true;
 
-        emit ValidatorCreated(_token, _owner, validator, allValidators.length);
+        emit ValidatorCreated(_owner, validator, allValidators.length);
     }
 
 }

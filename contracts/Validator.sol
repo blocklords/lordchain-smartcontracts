@@ -113,19 +113,19 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     function initialize(
         address _admin,
-        address _token,
         address _owner,
         uint256 _validatorId,
-        uint256 _quality
+        uint256 _quality,
+        address _verifier
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
         factory = msg.sender;
         voter = IValidatorFactory(factory).voter();
-        (admin, token, owner, validatorId, quality) = (_admin, _token, _owner, _validatorId, _quality);
+        (admin, owner, validatorId, quality) = (_admin, _owner, _validatorId, _quality);
         if (_quality < 1 && _quality > 7) revert QualityWrong();
         PRECISION_FACTOR = 10 ** 12;
 
-        validatorFees = address(new ValidatorFees(token));
+        validatorFees = address(new ValidatorFees());
 
         string[7] memory nodeTypes = [
             "BLOCKLORDS Master",      // index 0, quality 1
@@ -151,7 +151,7 @@ contract Validator is IValidator, ReentrancyGuard {
             _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
             isClaimed = false;
         }
-
+        verifier = _verifier;
         isPaused = false;
     }
 
@@ -169,6 +169,8 @@ contract Validator is IValidator, ReentrancyGuard {
         address _rewardToken,
         uint256 _totalReward
     ) external nonReentrant onlyAdmin {
+
+        ValidatorFees(validatorFees).setToken(_stakeToken);
 
         // Check if total reward is greater than 0
         if (_totalReward <= 0) revert InvalidTotalReward();
@@ -329,18 +331,21 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @dev This function verifies that the provided signature is valid, ensures the user has sufficient funds,
     ///      and that certain conditions are met before claiming the validator.
     /// @param _np The number of validators being purchased (may represent quantity or other related value).
-    /// @param _deadline The deadline by which the transaction must be completed, used to prevent replay attacks.
+    /// @param _quality The quality level of the validator.
+    /// @param _deadline The deadline by which the transaction must be completed, used to prevent replay attacks. uint256 ,
     /// @param _v The recovery byte of the signature.
     /// @param _r The 'r' part of the ECDSA signature.
     /// @param _s The 's' part of the ECDSA signature.
     /// @dev This function ensures that only authorized users can purchase the validator and that they meet
     ///      the necessary requirements for purchasing.
-    function purchaseValidator(uint256 _np, uint256 _deadline, uint8 _v,  bytes32 _r, bytes32 _s) external nonReentrant whenNotPaused {
+    function purchaseValidator(uint256 _np, uint256 _quality, uint256 _deadline, uint8 _v,  bytes32 _r, bytes32 _s) external nonReentrant whenNotPaused {
         // Check that the deadline has not passed, ensuring the signature is still valid
         if (_deadline < block.timestamp) revert SignatureExpired();
 
         // Ensure that the number of validators to be purchased is greater than 0
         if (_np <= 0) revert InsufficientAmount();
+
+        if (_quality != quality) revert QualityWrong();
 
         // Ensure that the validator has not already been claimed
         if (isClaimed == true) revert ValidatorIsClaimed();
@@ -358,7 +363,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Verify the signature by hashing the message and recovering the address
         {
             // Generate the message hash using the parameters
-            bytes32 message = keccak256(abi.encodePacked(_np, address(this), _deadline, block.chainid));
+            bytes32 message = keccak256(abi.encodePacked(_np, address(this), _deadline, block.chainid, msg.sender, _quality));
             bytes32 hash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
             
             // Recover the address from the signature
