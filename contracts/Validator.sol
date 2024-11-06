@@ -22,83 +22,86 @@ import "./ValidatorFees.sol";
 contract Validator is IValidator, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    // RewardPeriod struct is used to record the details of a reward period
     struct RewardPeriod {
-        uint256 startTime;
-        uint256 endTime;
-        address stakeToken;
-        address rewardToken;
-        uint256 totalReward;
+        uint256 startTime; // The start time of the reward period
+        uint256 endTime;   // The end time of the reward period
+        address stakeToken; // The address of the token that users stake
+        address rewardToken; // The address of the token that is used as the reward
+        uint256 totalReward; // The total reward amount for this period
     }
 
+    // UserInfo struct is used to store staking information for each user
     struct UserInfo {
-        uint256 amount; // How many staked tokens the user has provided
-        uint256 lockStartTime; // lock start time.
-        uint256 lockEndTime; // lock end time.
-        uint256 rewardDebt; // Reward debt
-        bool autoMax;
+        uint256 amount; // The amount of tokens the user has staked
+        uint256 lockStartTime; // The start time of the staking lock period
+        uint256 lockEndTime; // The end time of the staking lock period
+        uint256 rewardDebt; // The reward debt, used to calculate the user's reward share
+        bool autoMax; // Indicates whether the user has enabled automatic maximum staking
     }
 
-    uint256 public constant DEPOSIT_MAX_FEE = 100; // 1%
-    uint256 public constant CLAIM_MAX_FEE = 500;   // 5%
-    uint256 public constant WEEK = 7 days;
-    uint256 public constant MAX_LOCK = (209 * WEEK) - 1; // MAX_LOCK 209 weeks - 1 seconds
-    // uint256 public constant MIN_LOCK = WEEK;
-    uint256 public constant MIN_LOCK = 520;
-    uint256 public constant MULTIPLIER = 10**18;
+    uint256 public constant DEPOSIT_MAX_FEE = 100; // The maximum deposit fee (1%)
+    uint256 public constant CLAIM_MAX_FEE = 500;   // The maximum claim fee (5%)
+    uint256 public constant WEEK = 7 days; // One week in seconds
+    uint256 public constant MAX_LOCK = (209 * WEEK) - 1; // Maximum lock duration (209 weeks - 1 second)
+    uint256 public constant MIN_LOCK = 520; // Minimum lock duration (520 seconds)
+    uint256 public constant MULTIPLIER = 10**18; // The precision factor for reward calculations
 
-    bool public isClaimed;
-    bool public isPaused;
+    bool public isClaimed; // Flag to indicate whether the validator has been claimed
+    bool public isPaused;  // Flag to indicate whether the contract is paused
 
-    string public _name;
+    string public _name; // The name of the validator contract
 
-    uint256 public lastRewardTime;
-    uint256 public totalStaked;
-    // Accrued token per share
-    uint256 public accTokenPerShare;
-    // The precision factor
-    uint256 public PRECISION_FACTOR;
-    uint256 public depositFee;
-    uint256 public claimFee;
-    uint256 public validatorId;
-    uint256 public currentRewardPeriodIndex;
-    uint256 public quality;
+    uint256 public lastRewardTime; // The last time rewards were distributed
+    uint256 public totalStaked; // The total amount of staked tokens
+    uint256 public accTokenPerShare; // The accumulated tokens per share
+    uint256 public PRECISION_FACTOR; // The precision factor for reward calculations
+    uint256 public depositFee; // The deposit fee percentage
+    uint256 public claimFee; // The claim fee percentage
+    uint256 public validatorId; // The unique identifier of the validator
+    uint256 public currentRewardPeriodIndex; // The current reward period index
+    uint256 public quality; // The quality level of the validator (e.g., Master, Super, etc.)
 
     /// @inheritdoc IValidator
-    address public token;
+    address public token; // The address of the token used for staking
     /// @inheritdoc IValidator
-    address public validatorFees;
+    address public validatorFees; // The address of the validator fees contract
     /// @inheritdoc IValidator
-    address public factory;
-    // The block number of the last validator update
-    address private voter;
-    address public admin;
-    address public owner;
-    address public verifier;                   // Address of the verifier for signature verification
-    address public masterValidator;
+    address public factory; // The address of the PoolFactory that created this contract
+    address private voter; // The address of the voter (for validation purposes)
+    address public admin; // The address of the contract admin
+    address public owner; // The address of the contract owner
+    address public verifier; // The address of the verifier for signature verification
+    address public masterValidator; // The address of the master validator contract
 
-
+    // Mapping to store reward periods
     mapping(uint256 => RewardPeriod) public rewardPeriods;
-    // Mapping to store allocated reward ratio for each period
+    // Mapping to store allocated reward ratios for each reward period
     mapping(uint256 => uint256) public rewardPeriodAllocatedRatios;
-    // Info of each user that stakes tokens (stakedToken)
+    // Mapping to store information about each user who stakes tokens
     mapping(address => UserInfo) public userInfo;
+    // Mapping to store the count of nodes based on their quality
     mapping(uint256 => uint256) public nodeCounts;
 
+    // Modifier to ensure only the admin can access the function
     modifier onlyAdmin() {
         if (msg.sender != address(admin)) revert NotAdmin();
         _;
     }
 
+    // Modifier to ensure only the owner can access the function
     modifier onlyOwner() {
         if (msg.sender != address(admin)) revert NotOwner();
         _;
     }
-    
+
+    // Modifier to ensure the contract is not paused
     modifier whenNotPaused() {
         if (isPaused) revert ContractPaused();
         _;
     }
 
+    // Modifier to ensure only the factory can access the function
     modifier onlyFactory() {
         if (msg.sender != factory) revert NotFactory();
         _;
@@ -112,44 +115,42 @@ contract Validator is IValidator, ReentrancyGuard {
         address _token,
         address _owner,
         uint256 _validatorId,
-        bool _isClaimed,
         uint256 _quality
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
         factory = msg.sender;
         voter = IValidatorFactory(factory).voter();
         (admin, token, owner, validatorId, quality) = (_admin, _token, _owner, _validatorId, _quality);
-
-        depositFee = 100; // 1%
-        claimFee = 500; // 5%
+        if (_quality < 1 && _quality > 7) revert QualityWrong();
         PRECISION_FACTOR = 10 ** 12;
 
         validatorFees = address(new ValidatorFees(token));
 
-        string memory nodeType;
-        if (_quality == 0) {
-            nodeType = "Master Validator";
+        string[7] memory nodeTypes = [
+            "BLOCKLORDS Master",      // index 0, quality 1
+            "Super Validator",        // index 1, quality 2
+            "Basic Validator",        // index 2, quality 3
+            "Special Validator",      // index 3, quality 4
+            "Rare Validator",         // index 4, quality 5
+            "Epic Validator",         // index 5, quality 6
+            "Legendary Validator"     // index 6, quality 7
+        ];
+
+        string memory nodeType = nodeTypes[_quality - 1];
+
+        if (_quality == 1) {
             depositFee = 0;
             claimFee = 0;
-        } else if (_quality == 1) {
-            nodeType = "Standard Validator";
-        } else if (_quality == 2) {
-            nodeType = "Special Validator";
-        } else if (_quality == 3) {
-            nodeType = "Rare Validator";
-        } else if (_quality == 4) {
-            nodeType = "Epic Validator";
-        } else if (_quality == 5) {
-            nodeType = "Legendary Validator";
-        } else if (_quality == 6) {
-            nodeType = "Super Validator";
+            _name = nodeType;
+            isClaimed = true;
         } else {
-            revert QualityWrong();
+            depositFee = 100; // 1%
+            claimFee = 500; // 5%
+            nodeCounts[_quality]++;
+            _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
+            isClaimed = false;
         }
-        nodeCounts[_quality]++;
-        _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
 
-        isClaimed = _isClaimed;
         isPaused = false;
     }
 
@@ -323,31 +324,57 @@ contract Validator is IValidator, ReentrancyGuard {
         emit SetAutoMax(msg.sender, _bool);
     }
 
-    function purchaseValidator(uint256 _np, uint256 _deadline, uint8 _v, bytes32 _r, bytes32 _s) external nonReentrant whenNotPaused {
+    /// @notice Allows a user to purchase a validator by providing a signature and other required parameters.
+    /// @dev This function verifies that the provided signature is valid, ensures the user has sufficient funds,
+    ///      and that certain conditions are met before claiming the validator.
+    /// @param _np The number of validators being purchased (may represent quantity or other related value).
+    /// @param _deadline The deadline by which the transaction must be completed, used to prevent replay attacks.
+    /// @param _v The recovery byte of the signature.
+    /// @param _r The 'r' part of the ECDSA signature.
+    /// @param _s The 's' part of the ECDSA signature.
+    /// @dev This function ensures that only authorized users can purchase the validator and that they meet
+    ///      the necessary requirements for purchasing.
+    function purchaseValidator(uint256 _np, uint256 _deadline, uint8 _v,  bytes32 _r, bytes32 _s) external nonReentrant whenNotPaused {
+        // Check that the deadline has not passed, ensuring the signature is still valid
         if (_deadline < block.timestamp) revert SignatureExpired();
-        if (_np <= 0) revert ZeroAmount();
+
+        // Ensure that the number of validators to be purchased is greater than 0
+        if (_np <= 0) revert InsufficientAmount();
+
+        // Ensure that the validator has not already been claimed
         if (isClaimed == true) revert ValidatorIsClaimed();
 
+        // Retrieve the amount of tokens and the auto-max setting from the master validator contract
         (uint256 amount, bool isAutoMax) = IValidator(masterValidator).getAmountAndAutoMax(msg.sender);
+
+        // Ensure that auto-max is enabled for the user (this flag must be true to proceed)
         if (isAutoMax == false) revert AutoMaxNotEnabled();
-        
+
+        // Check that the user has staked enough tokens to meet the required minimum amount for the given quality
         uint256 requiredAmount = IValidatorFactory(factory).minAmountForQuality(quality);
         if (amount < requiredAmount) revert InsufficientAmount();
 
+        // Verify the signature by hashing the message and recovering the address
         {
-            bytes32 message         = keccak256(abi.encodePacked(_np, address(this), _deadline, block.chainid));
-            bytes32 hash            = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
-            address recover         = ecrecover(hash, _v, _r, _s);
+            // Generate the message hash using the parameters
+            bytes32 message = keccak256(abi.encodePacked(_np, address(this), _deadline, block.chainid));
+            bytes32 hash = keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", message));
+            
+            // Recover the address from the signature
+            address recover = ecrecover(hash, _v, _r, _s);
 
+            // Ensure the recovered address matches the expected verifier address
             if (recover != verifier) revert VerificationFailed();
         }
 
+        // Mark the validator as claimed and set the owner to the message sender
         isClaimed = true;
         owner = msg.sender;
 
+        // Emit the PurchaseValidator event to notify that the purchase was successful
         emit PurchaseValidator(msg.sender, _np);
-
     }
+
 
     /// @notice Gets the pending rewards for a user.
     /// @param _userAddress The address of the user to query.
@@ -369,75 +396,120 @@ contract Validator is IValidator, ReentrancyGuard {
         return totalPending;
     }
 
+    /// @notice Calculates the total rewards for a validator based on the reward periods and current time.
+    /// @dev This function iterates through all reward periods and calculates the rewards that have been earned,
+    ///      considering the time elapsed in each period. Rewards are calculated based on the proportion of time
+    ///      that has passed in each period relative to the total duration of the period.
+    /// @return totalRewards The total rewards accumulated by the validator over all reward periods.
     function getValidatorRewards() external view returns (uint256) {
         uint256 totalRewards = 0;
+
+        // Iterate through each reward period and calculate rewards for that period
         for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
             uint256 period = 0;
+
+            // If the current block timestamp is greater than the reward period's start time
             if (block.timestamp > rewardPeriods[i].startTime) {
                 period = block.timestamp - rewardPeriods[i].startTime;
+
+                // Ensure the period doesn't exceed the end time of the reward period
                 if (block.timestamp > rewardPeriods[i].endTime) {
                     period = rewardPeriods[i].endTime - rewardPeriods[i].startTime;
                 }
             }
 
             uint256 duration = rewardPeriods[i].endTime - rewardPeriods[i].startTime;
+
+            // Add the reward for this period, proportional to the time spent in the period
             totalRewards += (period * rewardPeriods[i].totalReward) / duration;
         }
+
         return totalRewards;
     }
-    
+
+    /// @notice Retrieves the amount of staked tokens and the auto-max setting for a user.
+    /// @param _userAddress The address of the user whose staking information is to be retrieved.
+    /// @return amount The amount of tokens the user has staked.
+    /// @return isAutoMax Whether the auto-max feature is enabled for the user.
     function getAmountAndAutoMax(address _userAddress) external view returns (uint256, bool) {
         UserInfo storage info = userInfo[_userAddress];
         return (info.amount, info.autoMax);
     }
 
+    /// @notice Handles the deposit of staked tokens into the contract for a user.
+    /// @dev This function transfers tokens to the contract, applies the deposit fee, updates the user's staking amount,
+    ///      and records the lock duration if specified. It also updates the total staked amount in the factory contract.
+    /// @param _amount The amount of tokens the user wishes to deposit.
+    /// @param _lockDuration The duration for which the tokens will be locked. If set to 0, the tokens will not be locked.
+    /// @param _user The user information struct to be updated.
     function _deposit(uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
+        // Update validator state
         _updateValidator();
 
         if (_amount > 0) {
-            uint256 fee = (_amount * depositFee) / 10000; //  depositFee (5 = 0.05%)
+            // Calculate the deposit fee (depositFee is in basis points, e.g., 500 = 5%)
+            uint256 fee = (_amount * depositFee) / 10000;
             uint256 amountAfterFee = _amount - fee;
 
+            // Ensure the amount after fee is positive
             if (amountAfterFee <= 0) revert InsufficientAmount();
 
             // Transfer the staked amount to the contract
             IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransferFrom(msg.sender, address(this), amountAfterFee);
 
+            // If there is a fee, transfer it to the validatorFees address
             if (fee > 0) {
-                IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransferFrom(msg.sender, validatorFees, fee); // transfer to ValidatorFees address
+                IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransferFrom(msg.sender, validatorFees, fee);
             }
 
+            // Update the user's staked amount
             _user.amount += amountAfterFee;
             totalStaked += _user.amount;
 
+            // If a lock duration is provided, set the lock start and end times
             if (_lockDuration > 0) {
                 _user.lockStartTime = block.timestamp;
                 _user.lockEndTime = _lockDuration + block.timestamp;
             }
 
+            // Update the total staked amount in the factory contract
             IValidatorFactory(factory).AddTotalStakedAmount(amountAfterFee);
         }
 
+        // If lock duration is provided but no amount is being deposited, just extend the lock duration
         if (_lockDuration > 0 && _amount == 0) {
             _user.lockEndTime += _lockDuration;
         }
 
+        // Update the user's reward debt (this represents the amount of rewards the user is entitled to)
         _user.rewardDebt = (_user.amount * accTokenPerShare) / PRECISION_FACTOR;
 
+        // Emit the Deposit event
         emit Deposit(msg.sender, _amount, _lockDuration, _user.lockEndTime);
     }
 
+    /// @notice Claims the pending rewards for a user and transfers the reward amount.
+    /// @dev This function calculates the pending rewards, applies the claim fee, and transfers the rewards to the user.
+    ///      It also transfers the fee portion to the contract owner.
+    /// @param _pending The amount of pending rewards to be claimed.
+    /// @return userClaimAmount The amount of rewards the user can claim after the fee is deducted.
+    /// @return feeAmount The amount of rewards deducted as a fee.
     function _claim(uint256 _pending) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
+        // If there are no pending rewards, return zero values
         if (_pending == 0) return (0, 0);
 
+        // Ensure the contract has enough reward tokens to cover the pending claim
         if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).balanceOf(address(this)) < _pending) revert NotEnoughRewardToken();
 
-        feeAmount = (_pending * claimFee) / 10000; // claimFee (30 = 0.3%)
+        // Calculate the claim fee (claimFee is in basis points, e.g., 300 = 3%)
+        feeAmount = (_pending * claimFee) / 10000;
         userClaimAmount = _pending - feeAmount;
 
+        // Transfer the fee to the contract owner
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(owner, feeAmount);
+
+        // Transfer the remaining rewards to the user
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(msg.sender, userClaimAmount);
-        
     }
 
     /// @notice Checks if any reward period is currently active.
@@ -470,12 +542,22 @@ contract Validator is IValidator, ReentrancyGuard {
         lastRewardTime = block.timestamp;
     }
 
+    /// @notice Calculates the LRDS reward for a given reward period index.
+    /// @dev This function calculates the reward based on the elapsed time in the reward period and applies the multiplier.
+    ///      The multiplier is derived from the time between the last reward time and the current block timestamp, relative to the reward period's duration.
+    /// @param index The index of the reward period for which the reward should be calculated.
+    /// @return The amount of LRDS reward for the specified period, considering the elapsed time and multiplier.
     function calculateLrdsReward(uint256 index) private view returns (uint256) {
+        // Retrieve the details of the reward period at the given index
         RewardPeriod memory period = rewardPeriods[index];
 
+        // Calculate the reward per second for the reward period
         uint256 rewardPerSecond = period.totalReward / (period.endTime - period.startTime);
+
+        // Calculate the multiplier based on the elapsed time since the last reward time
         uint256 multiplier = _getMultiplier(lastRewardTime, block.timestamp, period.endTime);
 
+        // Return the calculated reward, applying the multiplier to the reward per second
         return multiplier * rewardPerSecond;
     }
 
@@ -533,7 +615,7 @@ contract Validator is IValidator, ReentrancyGuard {
          UserInfo storage user = userInfo[_user];
 
         // If user has no amount staked or if not the master validator, return 0
-        if (user.amount == 0 || quality != 0) return 0;
+        if (user.amount == 0 || quality != 1) return 0;
 
         // Determine the effective lock end time
         uint256 effectiveLockEndTime = user.autoMax ? block.timestamp + MAX_LOCK : user.lockEndTime;
@@ -603,13 +685,27 @@ contract Validator is IValidator, ReentrancyGuard {
         verifier = _verifier;
     }
     
+    /// @notice Sets the address of the master validator.
+    /// @dev This function allows the admin to set or update the master validator address.
+    ///      The new address must be non-zero to ensure valid assignments.
+    /// @param _validator The address of the new master validator.
     function setMasterValidator(address _validator) external onlyAdmin {
+        // Ensure the provided address is not zero
         if (_validator == address(0)) revert ZeroAddress();
+        
+        // Set the master validator address
         masterValidator = _validator;
     }
-    
+
+    /// @notice Sets the address of the voter.
+    /// @dev This function allows the admin to set or update the voter address.
+    ///      The new address must be non-zero to ensure valid assignments.
+    /// @param _voter The address of the new voter.
     function setVoter(address _voter) external onlyAdmin {
+        // Ensure the provided address is not zero
         if (_voter == address(0)) revert ZeroAddress();
+        
+        // Set the voter address
         voter = _voter;
     }
 
@@ -617,7 +713,15 @@ contract Validator is IValidator, ReentrancyGuard {
                                FACTORY
     //////////////////////////////////////////////////////////////*/
     
+    /// @notice Sets the paused state of the contract.
+    /// @dev This function allows the factory (only the factory can call it) to pause or unpause the contract.
+    ///      Pausing the contract might prevent certain operations or changes from occurring, providing a safety mechanism.
+    /// @param _state The new paused state: `true` to pause the contract, `false` to unpause it.
     function setPauseState(bool _state) external onlyFactory {
+        // If the new state is the same as the current state, revert the transaction
+        if (isPaused == _state) revert StateUnchanged();
+
+        // Update the paused state based on the provided value
         isPaused = _state;
     }
 }

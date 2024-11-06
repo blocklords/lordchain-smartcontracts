@@ -46,11 +46,11 @@ contract  ValidatorFactory is IValidatorFactory {
         admin = msg.sender;
         isPaused[_implementation] = false;
         
-        minAmountForQuality[1] = 400;
-        minAmountForQuality[2] = 1000;
-        minAmountForQuality[3] = 3000;
-        minAmountForQuality[4] = 5000;
-        minAmountForQuality[5] = 10000;
+        minAmountForQuality[3] = 400;
+        minAmountForQuality[4] = 1000;
+        minAmountForQuality[5] = 3000;
+        minAmountForQuality[6] = 5000;
+        minAmountForQuality[7] = 10000;
     }
 
     /// @inheritdoc IValidatorFactory
@@ -118,7 +118,6 @@ contract  ValidatorFactory is IValidatorFactory {
         return totalValidatorRewards;
     }
 
-
     /// @inheritdoc IValidatorFactory
     function isValidatorl(address pool) external view returns (bool) {
         return _isValidator[pool];
@@ -131,6 +130,7 @@ contract  ValidatorFactory is IValidatorFactory {
         emit SetVoter(_voter);
     }
 
+    /// @inheritdoc IValidatorFactory
     function setPauser(address _pauser) external {
         if (msg.sender != pauser) revert NotPauser();
         if (_pauser == address(0)) revert ZeroAddress();
@@ -138,12 +138,14 @@ contract  ValidatorFactory is IValidatorFactory {
         emit SetPauser(_pauser);
     }
 
+    /// @inheritdoc IValidatorFactory
     function setPauseState(address _validator, bool _state) external {
         if (msg.sender != pauser) revert NotPauser();
         isPaused[_validator] = _state;
         emit SetPauseState(_validator, _state);
     }
 
+    /// @inheritdoc IValidatorFactory
     function setFeeManager(address _feeManager) external {
         if (msg.sender != feeManager) revert NotFeeManager();
         if (_feeManager == address(0)) revert ZeroAddress();
@@ -156,7 +158,7 @@ contract  ValidatorFactory is IValidatorFactory {
     }
 
     /// @inheritdoc IValidatorFactory
-    function createValidator(address _token, address _owner, bool _isClaimed, uint256 _quality) public returns (address validator) {
+    function createValidator(address _token, address _owner, uint256 _quality) public returns (address validator) {
         if (_token == address(0)) revert ZeroAddress();
         
         uint256 validatorId = _validatorCount[_owner];
@@ -169,7 +171,7 @@ contract  ValidatorFactory is IValidatorFactory {
        
         validator = Clones.cloneDeterministic(implementation, salt);
         
-        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId, _isClaimed, _quality);
+        IValidator(validator).initialize(msg.sender, _token, _owner, validatorId, _quality);
         
         _validatorList[_token][_owner][validatorId] = validator;
 
