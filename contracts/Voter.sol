@@ -36,6 +36,11 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
         uint256 boostEndTime;           // boostEndTime The end time for the distribution of the boost reward
         FinalizationStatus status;      // status The current status of the boost proposal (Pending, Executed, Cancelled)
     }
+
+    struct VoteReward {
+        address rewardToken;  // The address of the reward token (ERC20 token)
+        uint256 rewardAmount; // The total reward amount allocated for the proposal
+    }
     
     enum FinalizationStatus {
         Pending,                        // Pending The proposal is still in progress
@@ -57,6 +62,8 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(uint256 => address)) public proposalValidators;              // Mapping from proposal ID -> validator index -> validator address
     mapping(uint256 => uint256) public proposalValidatorCounts;                             // Mapping from proposal ID -> number of validators
     mapping(uint256 => bool) public isBoostVote;                                            // Mapping to check if a proposal is a boost proposal
+    mapping(uint256 => VoteReward) public voteRewards;                                      // Mapping of proposal ID to VoteReward
+    mapping(uint256 => address[]) public proposalVoters;                                    // Records all the voters' addresses for each proposal
 
     /**
      * @dev Constructor to initialize the Voter contract
@@ -222,8 +229,34 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
 
         // Update the user's total votes
         userTotalVotes[msg.sender] += totalWeight;
+         
+        // Record the voter for the proposal
+        _recordVoter(_proposalId, msg.sender);
 
         emit Voted(msg.sender, _proposalId, _choiceIds, _weights);
+    }
+
+    /**
+    * @dev Records the voter for a specific proposal.
+    * Checks if the voter has already voted and adds them to the list of voters if not.
+    * @param _proposalId The ID of the proposal the user is voting on.
+    * @param voter The address of the user who is voting.
+    */
+    function _recordVoter(uint256 _proposalId, address voter) internal {
+        bool alreadyVoted = false;
+        
+        // Check if the user has already voted
+        for (uint256 i = 0; i < proposalVoters[_proposalId].length; i++) {
+            if (proposalVoters[_proposalId][i] == voter) {
+                alreadyVoted = true;
+                break;
+            }
+        }
+        
+        // If the user hasn't voted yet, add their address to the list of voters
+        if (!alreadyVoted) {
+            proposalVoters[_proposalId].push(voter);
+        }
     }
 
     /**
@@ -340,26 +373,166 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Cancels a proposal by marking it as cancelled
-     * @param _proposalId The ID of the proposal to be finalized
-     */
+    * @dev Cancels a proposal by marking it as cancelled
+    * @param _proposalId The ID of the proposal to be cancelled
+    */
     function cancelProposal(uint256 _proposalId) external onlyOwner {
         Proposal storage proposal = proposals[_proposalId];
+
+        // Check if the proposal is in Pending status before proceeding
         if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
-        
+
+        // Ensure that the proposal has no staked votes before canceling
+        bool hasStakedVotes = false;
+
+        // Check if there are any votes in any of the options for the proposal
+        for (uint256 i = 0; i < proposal.totalChoices; i++) {
+            if (optionVotes[_proposalId][i] > 0) {
+                hasStakedVotes = true;
+                break;
+            }
+        }
+
+        // If there are staked votes, revert with an error
+        if (hasStakedVotes) revert ProposalHasStakedVotes();
+
+        // Mark the proposal as cancelled
         proposal.status = FinalizationStatus.Cancelled;
         emit ProposalCancelled(_proposalId);
     }
 
     /**
-     * @dev Cancesl a boost proposal by marking it as cancelled
-     * @param _proposalId The ID of the boost proposal to be finalized
-     */
+    * @dev Cancels a boost proposal by marking it as cancelled
+    * @param _proposalId The ID of the boost proposal to be cancelled
+    */
     function cancelBoostProposal(uint256 _proposalId) external onlyOwner {
         ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
+
+        // Ensure the proposal is still pending
         if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
-        
+
+        // Check if the boost proposal has votes before canceling
+        bool hasVotes = false;
+
+        // Loop through all possible choices to check if any of them have votes
+        for (uint256 i = 0; i < proposalValidatorCounts[_proposalId]; i++) {
+            if (optionVotes[_proposalId][i] > 0) {
+                hasVotes = true;
+                break;
+            }
+        }
+
+        // If there are votes, revert the cancellation
+        if (hasVotes) revert ProposalHasStakedVotes();
+
+        // Mark the boost proposal as cancelled
         boostProposal.status = FinalizationStatus.Cancelled;
         emit BoostProposalCancelled(_proposalId);
     }
+
+    /**
+    * @dev Sets the reward token and reward amount for a given proposal.
+    * This function allows the contract owner to configure the reward settings for a specific proposal.
+    * @param _proposalId The ID of the proposal for which the reward is being set.
+    * @param _rewardToken The address of the reward token (ERC20 token) that will be used to reward voters.
+    * @param _rewardAmount The total reward amount allocated for the proposal.
+    */
+    function setVoteReward(uint256 _proposalId, address _rewardToken, uint256 _rewardAmount) external onlyOwner {
+        // Check that the reward token address is valid (not zero address)
+        if (_rewardToken == address(0)) revert ZeroAddress();
+        
+        // Check that the reward amount is greater than zero
+        if (_rewardAmount <= 0) revert WrongValue();
+
+        // Set the reward token address and reward amount for the proposal
+        voteRewards[_proposalId] = VoteReward({
+            rewardToken : _rewardToken,
+            rewardAmount: _rewardAmount
+        });
+    }
+
+    /**
+    * @dev Executes the reward distribution for a given proposal based on the vote weight.
+    * This function is called by the owner to distribute rewards to voters after the voting period ends.
+    * @param _proposalId The ID of the proposal whose vote rewards are being distributed.
+    */
+    function executeVoteRewardProposal(uint256 _proposalId) external onlyOwner {
+        // Retrieve the reward details for the proposal
+        VoteReward storage reward = voteRewards[_proposalId];
+
+        uint256 totalVotes   = 0;  // Total votes cast in the proposal
+        bool isBoostProposal = isBoostVote[_proposalId];  // Check if the proposal is a boost proposal
+        uint256 totalReward  = reward.rewardAmount;  // Total reward to distribute
+        address rewardToken  = reward.rewardToken;  // The token being distributed as a reward
+
+        // Ensure that the reward amount is greater than 0
+        if (totalReward <= 0) revert ZeroAmount();
+
+        // Check the proposal status
+        if (proposals[_proposalId].status != FinalizationStatus.Pending) {
+            revert("Proposal is not in Pending status");
+        }
+
+        // Check if the proposal is a boost proposal
+        if (isBoostProposal) {
+            // For boost proposals, retrieve the reward details and check voting period
+            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
+            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
+
+            // Sum the votes from all validators for the boost proposal
+            for (uint256 i = 0; i < proposalValidatorCounts[_proposalId]; i++) {
+                totalVotes += optionVotes[_proposalId][i];
+            }
+
+        } else {
+            // For regular proposals, retrieve the reward details and check voting period
+            Proposal storage proposal = proposals[_proposalId];
+            _checkVotingPeriod(proposal.startTime, proposal.endTime);
+
+            // Sum the votes from all choices for the regular proposal
+            for (uint256 i = 0; i < proposal.totalChoices; i++) {
+                totalVotes += optionVotes[_proposalId][i];
+            }
+        }
+
+        // Ensure there were votes cast in the proposal
+        if (totalVotes <= 0) revert ZeroAmount();
+
+        // Retrieve the list of voters for the proposal
+        address[] memory voters = proposalVoters[_proposalId];
+
+        // Loop through each voter to calculate their reward
+        for (uint256 i = 0; i < voters.length; i++) {
+            address voter = voters[i];
+            uint256 totalVoterWeight = 0;
+
+            // Accumulate the voter's total weight across all options/validators
+            if (isBoostProposal) {
+                // For boost proposals, sum the user's votes across all validators
+                for (uint256 j = 0; j < proposalValidatorCounts[_proposalId]; j++) {
+                    totalVoterWeight += userVotes[_proposalId][voter][j];
+                }
+            } else {
+                // For regular proposals, sum the user's votes across all choices
+                for (uint256 j = 0; j < proposals[_proposalId].totalChoices; j++) {
+                    totalVoterWeight += userVotes[_proposalId][voter][j];
+                }
+            }
+
+            // Calculate the reward for the current voter based on their vote weight
+            uint256 rewardForVoter = (totalVoterWeight * totalReward) / totalVotes;
+
+            // Transfer the calculated reward to the voter
+            if (rewardForVoter > 0) {
+                IERC20(rewardToken).safeTransferFrom(bank, voter, rewardForVoter);
+            }
+        }
+
+        // Clear the reward data for the proposal after the reward distribution is complete
+        delete voteRewards[_proposalId];
+
+        // Update the proposal status to Executed
+        proposals[_proposalId].status = FinalizationStatus.Executed;
+    }
+
 }

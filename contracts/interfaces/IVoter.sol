@@ -15,6 +15,9 @@ interface IVoter {
     error RewardDistributionNotAllowed();
     error NoVotes();
     error WrongStatus();
+    error ZeroAddress();
+    error ZeroAmount();
+    error ProposalHasStakedVotes();
     
     event ProposalCreated(uint256 indexed proposalId, uint256 startTime, uint256 endTime, string metadataURI, uint256 totalChoices);
     event Voted(address indexed sender, uint256 proposalId, uint256[] indexed choiceIds, uint256[] indexed weights);
