@@ -56,6 +56,7 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
 
     mapping(uint256 => mapping(uint256 => address)) public proposalValidators;              // Mapping from proposal ID -> validator index -> validator address
     mapping(uint256 => uint256) public proposalValidatorCounts;                             // Mapping from proposal ID -> number of validators
+    mapping(uint256 => bool) public isBoostVote;                                            // Mapping to check if a proposal is a boost proposal
 
     /**
      * @dev Constructor to initialize the Voter contract
@@ -88,54 +89,9 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
             totalChoices:  _totalChoices,
             status:        FinalizationStatus.Pending
         });
+        isBoostVote[proposalId] = false;
 
         emit ProposalCreated(proposalId, _startTime, _endTime, _metadataURI, _totalChoices);
-    }
-    
-    /**
-     * @dev Allows users to vote on a proposal
-     * @param _proposalId The ID of the proposal being voted on
-     * @param _choiceIds Array of selected choice IDs
-     * @param _weights Array of vote weights corresponding to each choice
-     */
-    function vote(uint256 _proposalId, uint256[] calldata _choiceIds, uint256[] calldata _weights) external nonReentrant {
-        if (_choiceIds.length != _weights.length) revert UnequalLengths();
-    
-        // Check if the voting period is active
-        Proposal storage proposal = proposals[_proposalId];
-        if (block.timestamp < proposal.startTime || block.timestamp > proposal.endTime) revert VotingNotOpen();
-
-        // Retrieve veLrds balance from masterValidator contract
-        uint256 availableVeLrds = IValidator(masterValidator).veLrdsBalance(msg.sender);
-        if (availableVeLrds <=0 ) revert NoVeLRDS();
-        
-        uint256 totalWeight = 0;
-        for (uint256 i = 0; i < _choiceIds.length; i++) {
-            // Prevent voting for invalid choices
-            if (_choiceIds[i] >= proposal.totalChoices) revert NoSuchOption(); 
-
-            uint256 weight = _weights[i];
-            // Prevent zero weight votes
-            if(weight <= 0) revert WrongValue();
-
-            // Update user votes for the selected option
-            userVotes[_proposalId][msg.sender][_choiceIds[i]] += weight;
-
-            // Update total votes for the selected option
-            optionVotes[_proposalId][_choiceIds[i]] += weight;
-            
-            // Accumulate the total weight of the user's vote
-            totalWeight += weight;
-        }
-
-        // Ensure the user's total vote weight does not exceed their available veLrds balance
-        if ((totalWeight + userTotalVotes[msg.sender]) > availableVeLrds) revert ExceedsAvailableWeight();
-
-        // Update the user's total votes
-        userTotalVotes[msg.sender] += totalWeight;
-
-        emit Voted(msg.sender, _proposalId, _choiceIds, _weights);
-
     }
 
     /**
@@ -189,7 +145,111 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
         }
         
         proposalValidatorCounts[proposalId] = validIndex;
+        isBoostVote[proposalId] = true;
+
         emit BoostProposalCreated(proposalId, _startTime, _endTime, _boostReward, _boostStartTime, _boostEndTime, _validators.length, _validators);
+    }
+
+    /**
+    * @dev Main vote method, handles both regular and boost proposals.
+    * @param _proposalId The ID of the proposal being voted on
+    * @param _choiceIds Array of selected choice IDs (for both regular and boost proposals)
+    * @param _weights Array of vote weights corresponding to each choice (for both regular and boost proposals)
+    */
+    function vote(uint256 _proposalId, uint256[] calldata _choiceIds, uint256[] calldata _weights) external nonReentrant {
+        // Check if choiceIds and weights lengths match
+        if (_choiceIds.length != _weights.length) revert UnequalLengths();
+
+
+        // Declare the Proposal storage variable here after checking the type of proposal
+        if (isBoostVote[_proposalId]) {
+            // Boost proposal voting logic
+            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
+
+            // Common check for voting period
+            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
+
+            _vote(_proposalId, _choiceIds, _weights, proposalValidatorCounts[_proposalId], true);
+        } else {
+            // Regular proposal voting logic
+            Proposal storage proposal = proposals[_proposalId];
+            
+            // Common check for voting period
+            _checkVotingPeriod(proposal.startTime, proposal.endTime);
+
+            _vote(_proposalId, _choiceIds, _weights, proposal.totalChoices, false);
+        }
+    }
+
+    /**
+    * @dev Handles voting logic for both regular and boost proposals.
+    * @param _proposalId The ID of the proposal being voted on
+    * @param _choiceIds Array of selected choice IDs
+    * @param _weights Array of vote weights corresponding to each choice
+    * @param _totalChoices The total number of choices (0 for boost proposals)
+    * @param _isBoostVote Boolean flag indicating if the proposal is a boost proposal
+    */
+    function _vote(
+        uint256 _proposalId, 
+        uint256[] calldata _choiceIds, 
+        uint256[] calldata _weights, 
+        uint256 _totalChoices, 
+        bool _isBoostVote
+    ) internal {
+        uint256 totalWeight = 0;
+
+        for (uint256 i = 0; i < _choiceIds.length; i++) {
+            // Validate each choice for both regular and boost proposals
+            _validateVoteChoice(_proposalId, _choiceIds[i], _totalChoices, _isBoostVote);
+
+            uint256 weight = _weights[i];
+            // Prevent zero weight votes
+            if (weight <= 0) revert WrongValue();
+
+            // Update user votes for the selected option
+            userVotes[_proposalId][msg.sender][_choiceIds[i]] += weight;
+
+            // Update total votes for the selected option
+            optionVotes[_proposalId][_choiceIds[i]] += weight;
+
+            // Accumulate the total weight of the user's vote
+            totalWeight += weight;
+        }
+
+        // Ensure the user's total vote weight does not exceed their available veLrds balance
+        uint256 availableVeLrds = IValidator(masterValidator).veLrdsBalance(msg.sender);
+        if ((totalWeight + userTotalVotes[msg.sender]) > availableVeLrds) revert ExceedsAvailableWeight();
+
+        // Update the user's total votes
+        userTotalVotes[msg.sender] += totalWeight;
+
+        emit Voted(msg.sender, _proposalId, _choiceIds, _weights);
+    }
+
+    /**
+    * @dev Validates the vote choice based on proposal type
+    * @param _proposalId The ID of the proposal being voted on
+    * @param _choiceId The selected choice ID
+    * @param _totalChoices The total number of choices (0 for boost proposals)
+    * @param _isBoostVote Boolean flag indicating if the proposal is a boost proposal
+    */
+    function _validateVoteChoice(uint256 _proposalId, uint256 _choiceId, uint256 _totalChoices, bool _isBoostVote) internal view {
+        if (_isBoostVote) {
+            // Boost proposal: check if the choice corresponds to a valid validator
+            if (proposalValidators[_proposalId][_choiceId] == address(0)) revert NoSuchOption();
+        } else {
+            // Regular proposal: check if the choice is valid
+            if (_choiceId >= _totalChoices) revert NoSuchOption();
+        }
+    }
+
+    /**
+    * @dev Checks if the voting period is active
+    * @param startTime The start time of the voting period
+    * @param endTime The end time of the voting period
+    */
+    function _checkVotingPeriod(uint256 startTime, uint256 endTime) internal view {
+        if (block.timestamp < startTime || block.timestamp > endTime) revert VotingNotOpen();
     }
 
     /**
