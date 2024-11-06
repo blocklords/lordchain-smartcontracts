@@ -79,4 +79,6 @@ interface IValidatorFactory {
     function AddTotalValidators(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external;
 
     function minAmountForQuality(uint256) external returns (uint256);
+    
+    function getValidators() external view returns (address[] memory);
 }

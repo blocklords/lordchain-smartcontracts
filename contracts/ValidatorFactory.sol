@@ -62,6 +62,11 @@ contract  ValidatorFactory is IValidatorFactory {
     function getValidator(address token, address owner, uint256 _validatorId) external view returns (address) {
         return _validatorList[token][owner][_validatorId];
     }
+    
+    /// @inheritdoc IValidatorFactory
+    function getValidators() external view returns (address[] memory) {
+        return allValidators;
+    }
 
     /// @inheritdoc IValidatorFactory
     function AddTotalStakedAmount(uint256 _amount) external {

@@ -95,4 +95,10 @@ interface IValidator {
     function setAutoMax(bool _bool) external;
 
     function getAmountAndAutoMax(address _userAddress) external view returns (uint256, bool);
+
+    function veLrdsBalance(address _user) external view returns (uint256);
+
+    function isClaimed() external view returns (bool);
+    
+    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount) external;
 }

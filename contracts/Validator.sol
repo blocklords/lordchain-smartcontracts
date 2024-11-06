@@ -12,6 +12,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 
 import "./interfaces/IValidatorFactory.sol";
 import "./interfaces/IValidator.sol";
+import "./interfaces/IVoter.sol";
 import "./ValidatorFees.sol";
 
 /// @title Validator Contract
@@ -69,7 +70,7 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     address public factory;
     // The block number of the last validator update
-    address private _voter;
+    address private voter;
     address public admin;
     address public owner;
     address public verifier;                   // Address of the verifier for signature verification
@@ -116,7 +117,7 @@ contract Validator is IValidator, ReentrancyGuard {
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
         factory = msg.sender;
-        _voter = IValidatorFactory(factory).voter();
+        voter = IValidatorFactory(factory).voter();
         (admin, token, owner, validatorId, quality) = (_admin, _token, _owner, _validatorId, _quality);
 
         depositFee = 100; // 1%
@@ -298,6 +299,8 @@ contract Validator is IValidator, ReentrancyGuard {
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransfer(address(msg.sender), user.amount);
         
         user.rewardDebt = (user.amount * accTokenPerShare) / PRECISION_FACTOR;
+
+        IVoter(voter).resetVotes(msg.sender);
 
         totalStaked -= user.amount;
         delete userInfo[msg.sender];
@@ -516,6 +519,10 @@ contract Validator is IValidator, ReentrancyGuard {
         // return userRewardRatio - _user.accruedRewards[_periodIndex];
     }
 
+    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount) external {
+
+    }
+
     /*//////////////////////////////////////////////////////////////
                                VELRDS
     //////////////////////////////////////////////////////////////*/
@@ -599,6 +606,11 @@ contract Validator is IValidator, ReentrancyGuard {
     function setMasterValidator(address _validator) external onlyAdmin {
         if (_validator == address(0)) revert ZeroAddress();
         masterValidator = _validator;
+    }
+    
+    function setVoter(address _voter) external onlyAdmin {
+        if (_voter == address(0)) revert ZeroAddress();
+        voter = _voter;
     }
 
     /*//////////////////////////////////////////////////////////////
