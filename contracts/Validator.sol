@@ -29,6 +29,7 @@ contract Validator is IValidator, ReentrancyGuard {
         address stakeToken;         // The address of the token that users stake
         address rewardToken;        // The address of the token that is used as the reward
         uint256 totalReward;        // The total reward amount for this period
+        uint256 accTokenPerShare; // The accumulated tokens per share for this reward period
     }
 
     // UserInfo struct is used to store staking information for each user
@@ -37,14 +38,16 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 lockStartTime;      // The start time of the staking lock period
         uint256 lockEndTime;        // The end time of the staking lock period
         uint256 rewardDebt;         // The reward debt, used to calculate the user's reward share
+        uint256 lastUpdatedRewardPeriod; // The index of the last reward period in which rewards were calculated for the user
         bool autoMax;               // Indicates whether the user has enabled automatic maximum staking
     }
 
     uint256 public constant DEPOSIT_MAX_FEE = 100;          // The maximum deposit fee (1%)
     uint256 public constant CLAIM_MAX_FEE = 500;            // The maximum claim fee (5%)
     uint256 public constant WEEK = 7 days;                  // One week in seconds
-    uint256 public constant MAX_LOCK = (209 * WEEK) - 1;    // Maximum lock duration (209 weeks - 1 second)
+    // uint256 public constant MAX_LOCK = (209 * WEEK) - 1;    // Maximum lock duration (209 weeks - 1 second)
     // uint256 public constant MIN_LOCK = WEEK;             // Minimum lock duration (520 seconds) --> main
+    uint256 public constant MAX_LOCK = 14560;    // Maximum lock duration (209 weeks - 1 second)
     uint256 public constant MIN_LOCK = 520;                 // Minimum lock duration (520 seconds) -->test
     uint256 public constant MULTIPLIER = 10**18;            // The precision factor for reward calculations
 
@@ -55,7 +58,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
     uint256 public lastRewardTime;                          // The last time rewards were distributed
     uint256 public totalStaked;                             // The total amount of staked tokens
-    uint256 public accTokenPerShare;                        // The accumulated tokens per share
     uint256 public PRECISION_FACTOR;                        // The precision factor for reward calculations
     uint256 public depositFee;                              // The deposit fee percentage
     uint256 public claimFee;                                // The claim fee percentage
@@ -75,8 +77,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
     // Mapping to store reward periods
     mapping(uint256 => RewardPeriod) public rewardPeriods;
-    // Mapping to store allocated reward ratios for each reward period
-    mapping(uint256 => uint256) public rewardPeriodAllocatedRatios;
     // Mapping to store information about each user who stakes tokens
     mapping(address => UserInfo) public userInfo;
     // Mapping to store the count of nodes based on their quality
@@ -190,12 +190,11 @@ contract Validator is IValidator, ReentrancyGuard {
             endTime: _endTime,
             stakeToken: _stakeToken,
             rewardToken: _rewardToken,
-            totalReward: _totalReward
+            totalReward: _totalReward,
+            accTokenPerShare: 0
         });
         
         IValidatorFactory(factory).AddTotalValidators(_startTime, _endTime, _totalReward);
-
-        rewardPeriodAllocatedRatios[currentRewardPeriodIndex - 1] = 1;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -261,18 +260,20 @@ contract Validator is IValidator, ReentrancyGuard {
 
         if (user.amount == 0) revert NoStakeFound();
 
+        // Update global reward state and user-specific rewards
         _updateValidator();
+        _updateUserRewards(user);
 
-        uint256 totalPending = 0;
-        for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
-            uint256 pending = _calculatePending(user, i);
-            totalPending += pending;
-            // user.accruedRewards[i] += pending;
-        }
+        // Calculate the total pending rewards
+        uint256 totalPending = _calculateTotalPending(user);
 
+        // Call _claim to distribute the rewards
         (uint256 userClaimAmount, uint256 feeAmount) = _claim(totalPending);
+        
+        user.rewardDebt = (user.amount * rewardPeriods[currentRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
 
-        user.rewardDebt = (user.amount * accTokenPerShare) / PRECISION_FACTOR;
+        // Update the user's last updated reward period to the current period
+        user.lastUpdatedRewardPeriod = currentRewardPeriodIndex - 1;
 
         emit Claim(msg.sender, userClaimAmount, feeAmount);
     }
@@ -285,33 +286,38 @@ contract Validator is IValidator, ReentrancyGuard {
         if (block.timestamp < user.lockEndTime) revert TimeNotUp();
         if (user.autoMax == true) revert AutoMaxTime();
 
+        // Update global reward state and user-specific rewards
         _updateValidator();
+        _updateUserRewards(user);
 
         if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).balanceOf(address(this)) < user.amount) revert NotEnoughStakeToken();
 
-        uint256 totalPending = 0;
-        for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
-            uint256 pending = _calculatePending(user, i);
-            totalPending += pending;
-            // user.accruedRewards[i] += pending;
-        }
+        // Calculate the total pending rewards
+        uint256 totalPending = _calculateTotalPending(user);
 
-        (uint256 userWithdrawAmount, uint256 feeAmount) = _claim(totalPending);
+        // Call _claim to distribute the rewards
+        (uint256 userClaimAmount, uint256 feeAmount) = _claim(totalPending);
 
+         // Transfer the user's staked amount back to them
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransfer(address(msg.sender), user.amount);
-        
-        user.rewardDebt = (user.amount * accTokenPerShare) / PRECISION_FACTOR;
 
+        // Reset the user's reward debt to zero after withdrawing
+        user.rewardDebt = 0;
+
+        // Reset votes associated with the user
         IVoter(voter).resetVotes(msg.sender);
 
+        // Update the global staking total
         totalStaked -= user.amount;
+
+        // Remove the user's information from the contract
         delete userInfo[msg.sender];
 
-        IValidatorFactory(factory).SubTotalStakedAmount(userWithdrawAmount);
+        // Update the total staked amount and wallet count in the factory contract
+        IValidatorFactory(factory).SubTotalStakedAmount(user.amount);
         IValidatorFactory(factory).SubTotalStakedWallet();
-        
 
-        emit Withdraw(msg.sender, user.amount, userWithdrawAmount, feeAmount);
+        emit Withdraw(msg.sender, user.amount, userClaimAmount, feeAmount);
     }
     
     /// @inheritdoc IValidator
@@ -379,25 +385,12 @@ contract Validator is IValidator, ReentrancyGuard {
         emit PurchaseValidator(msg.sender, _np);
     }
 
-
     /// @notice Gets the pending rewards for a user.
     /// @param _userAddress The address of the user to query.
     /// @return The amount of pending rewards for the user.
     function getUserPendingReward(address _userAddress) external view returns (uint256) {
-        UserInfo memory user = userInfo[_userAddress];
-        uint256 totalPending = 0;
-
-        if (block.timestamp > lastRewardTime && totalStaked > 0) {
-            for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
-                uint256 lrdsReward = calculateLrdsReward(i);
-                uint256 adjustedTokenPerShare = accTokenPerShare + (lrdsReward * PRECISION_FACTOR) / totalStaked;
-                totalPending += (user.amount * adjustedTokenPerShare) / PRECISION_FACTOR - user.rewardDebt;
-            }
-        } else {
-            return (user.amount * accTokenPerShare) / PRECISION_FACTOR - user.rewardDebt;
-        }
-
-        return totalPending;
+        UserInfo storage user = userInfo[_userAddress];
+        return _calculateTotalPending(user);
     }
 
     /// @notice Calculates the total rewards for a validator based on the reward periods and current time.
@@ -447,8 +440,9 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _lockDuration The duration for which the tokens will be locked. If set to 0, the tokens will not be locked.
     /// @param _user The user information struct to be updated.
     function _deposit(uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
-        // Update validator state
+        // Update global reward state and user-specific rewards
         _updateValidator();
+        _updateUserRewards(_user);
 
         if (_amount > 0) {
             // Calculate the deposit fee (depositFee is in basis points, e.g., 500 = 5%)
@@ -485,8 +479,7 @@ contract Validator is IValidator, ReentrancyGuard {
             _user.lockEndTime += _lockDuration;
         }
 
-        // Update the user's reward debt (this represents the amount of rewards the user is entitled to)
-        _user.rewardDebt = (_user.amount * accTokenPerShare) / PRECISION_FACTOR;
+        _user.rewardDebt = (_user.amount * rewardPeriods[currentRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
 
         // Emit the Deposit event
         emit Deposit(msg.sender, _amount, _lockDuration, _user.lockEndTime);
@@ -516,6 +509,17 @@ contract Validator is IValidator, ReentrancyGuard {
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(msg.sender, userClaimAmount);
     }
 
+    /// @notice Calculates the total pending rewards for a user across all eligible reward periods.
+    /// @param user The UserInfo struct of the user.
+    /// @return totalPending The total amount of pending rewards for the user.
+    function _calculateTotalPending(UserInfo storage user) internal view returns (uint256 totalPending) {
+        // Loop through each reward period from last updated period to the current
+        for (uint256 i = user.lastUpdatedRewardPeriod; i < currentRewardPeriodIndex; i++) {
+            uint256 pending = _calculatePending(user, i);
+            totalPending += pending;
+        }
+    }
+
     /// @notice Checks if any future or ongoing reward period is currently active.
     /// @return A boolean indicating if any reward period is active.
     function _isRewardPeriodActive() internal view returns (bool) {
@@ -537,20 +541,42 @@ contract Validator is IValidator, ReentrancyGuard {
             return;
         }
 
-        for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
-            uint256 lrdsReward = calculateLrdsReward(i);
-            accTokenPerShare = accTokenPerShare + (lrdsReward * PRECISION_FACTOR) / totalStaked;
+        // Only update the current active reward period
+        RewardPeriod storage  currentPeriod = rewardPeriods[currentRewardPeriodIndex - 1];
+        
+        // Check if the current time is within the current reward period
+        if (block.timestamp >= currentPeriod.startTime && block.timestamp <= currentPeriod.endTime) {
+            uint256 lrdsReward = _calculateLrdsReward(currentRewardPeriodIndex - 1);
+            currentPeriod.accTokenPerShare += (lrdsReward * PRECISION_FACTOR) / totalStaked;
         }
 
         lastRewardTime = block.timestamp;
     }
 
+    /// @notice Updates the user's accumulated rewards across active reward periods.
+    /// @param _user The user information struct to be updated.
+    function _updateUserRewards(UserInfo storage _user) internal {
+        uint256 accumulatedRewards = _user.rewardDebt;
+
+        // Loop through each reward period from the user's last updated period to the current
+        for (uint256 i = _user.lastUpdatedRewardPeriod; i < currentRewardPeriodIndex; i++) {
+            RewardPeriod memory period = rewardPeriods[i];
+            
+            if (period.endTime <= block.timestamp) {
+                accumulatedRewards += (_user.amount * period.accTokenPerShare) / PRECISION_FACTOR;
+            }
+        }
+
+        _user.rewardDebt = accumulatedRewards;
+    }
+
     /// @notice Calculates the LRDS reward for a given reward period index.
     /// @dev This function calculates the reward based on the elapsed time in the reward period and applies the multiplier.
-    ///      The multiplier is derived from the time between the last reward time and the current block timestamp, relative to the reward period's duration.
+    ///      The multiplier is derived from the time between the last reward time and the current block timestamp, 
+    ///      relative to the reward period's duration.
     /// @param index The index of the reward period for which the reward should be calculated.
     /// @return The amount of LRDS reward for the specified period, considering the elapsed time and multiplier.
-    function calculateLrdsReward(uint256 index) private view returns (uint256) {
+    function _calculateLrdsReward(uint256 index) internal view returns (uint256) {
         // Retrieve the details of the reward period at the given index
         RewardPeriod memory period = rewardPeriods[index];
 
@@ -564,44 +590,41 @@ contract Validator is IValidator, ReentrancyGuard {
         return multiplier * rewardPerSecond;
     }
 
-    /// @notice Calculates the multiplier based on the given time frames.
-    /// @param _from The starting timestamp.
-    /// @param _to The ending timestamp.
-    /// @param _endTime The ending time of the reward period.
-    /// @return The calculated multiplier for the reward.
-    function _getMultiplier(uint256 _from, uint256 _to, uint256 _endTime) internal pure returns (uint256) {
-        if (_to <= _endTime) {
-            return _to - _from;
-        } else if (_from >= _endTime) {
-            return 0;
-        } else {
-            return _endTime - _from;
-        }
+    /// @notice Calculates the multiplier for reward calculation based on the elapsed time in the reward period.
+    /// @param start The start time of the reward calculation (e.g., lastRewardTime or period start).
+    /// @param end The end time for the reward calculation (e.g., current block timestamp).
+    /// @param periodEnd The end time of the reward period being calculated.
+    /// @return The multiplier, representing the elapsed time within the period.
+    function _getMultiplier(uint256 start, uint256 end, uint256 periodEnd) internal pure returns (uint256) {
+        if (end <= start) return 0;
+        // Ensures that the calculation does not exceed the reward period's end
+        return (end < periodEnd ? end : periodEnd) - start;
     }
 
-    /// @notice Calculates the pending rewards for a user in a specific reward period.
+    /// @notice Calculates the pending rewards for a user in a specific reward period. 
     /// @param _user The UserInfo struct of the user.
     /// @param _periodIndex The index of the reward period to check.
     /// @return The amount of pending rewards for the user in this period.
     function _calculatePending(UserInfo storage _user, uint256 _periodIndex) internal view returns (uint256) {
         RewardPeriod memory period = rewardPeriods[_periodIndex];
+
+        // If the user's staked amount is 0 or the current time is before the reward period start time, return 0 pending reward
         if (_user.amount == 0 || block.timestamp < period.startTime) {
             return 0;
         }
 
-        return (_user.amount * accTokenPerShare) / PRECISION_FACTOR - _user.rewardDebt;
+        // Calculate the current accTokenPerShare for this reward period
+        uint256 currentAccTokenPerShare = period.accTokenPerShare;
+        if (block.timestamp <= period.endTime) {
+            uint256 lrdsReward = _calculateLrdsReward(_periodIndex);
+            currentAccTokenPerShare += (lrdsReward * PRECISION_FACTOR) / totalStaked;
+        }
 
-        // uint256 endTimeToConsider = block.timestamp > period.endTime
-        //     ? period.endTime
-        //     : block.timestamp;
+        // Calculate the pending reward based on the user's staked amount and the period's accTokenPerShare
+        uint256 pendingReward = (_user.amount * currentAccTokenPerShare) / PRECISION_FACTOR;
 
-        // uint256 timeBasedRatio = (endTimeToConsider - period.startTime) /
-        //     (period.endTime - period.startTime);
-
-        // uint256 userRewardRatio = (_user.amount *
-        //     rewardPeriodAllocatedRatios[_periodIndex] *
-        //     timeBasedRatio) / totalStaked;
-        // return userRewardRatio - _user.accruedRewards[_periodIndex];
+        // Subtract the user's reward debt to get the actual pending reward for this period
+        return pendingReward - _user.rewardDebt;
     }
 
     function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount) external {
