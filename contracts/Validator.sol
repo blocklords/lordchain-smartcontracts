@@ -231,7 +231,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
     /// @inheritdoc IValidator
     function extendDuration(uint256 _lockDuration) external nonReentrant whenNotPaused {
-        if (_lockDuration == 0 || _lockDuration < MIN_LOCK || _lockDuration > MAX_LOCK) revert WrongDuration();
+        if (_lockDuration <= 0 || _lockDuration > MAX_LOCK) revert WrongDuration();
         if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
         UserInfo storage user = userInfo[msg.sender];
