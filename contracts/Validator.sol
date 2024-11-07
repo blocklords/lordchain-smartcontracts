@@ -64,8 +64,6 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public quality;                                 // The quality level of the validator (e.g., Master, Super, etc.)
 
     /// @inheritdoc IValidator
-    address public token;                                   // The address of the token used for staking
-    /// @inheritdoc IValidator
     address public validatorFees;                           // The address of the validator fees contract
     /// @inheritdoc IValidator
     address public factory;                                 // The address of the PoolFactory that created this contract
@@ -518,16 +516,15 @@ contract Validator is IValidator, ReentrancyGuard {
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(msg.sender, userClaimAmount);
     }
 
-    /// @notice Checks if any reward period is currently active.
+    /// @notice Checks if any future or ongoing reward period is currently active.
     /// @return A boolean indicating if any reward period is active.
     function _isRewardPeriodActive() internal view returns (bool) {
-        for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
-            RewardPeriod memory period = rewardPeriods[i];
-            if ( block.timestamp >= period.startTime && block.timestamp <= period.endTime) {
-                return true;
-            }
+        if (currentRewardPeriodIndex == 0) {
+            return false; // No reward periods have been set
         }
-        return false;
+        RewardPeriod memory latestPeriod = rewardPeriods[currentRewardPeriodIndex - 1];
+        // If the current time is within the latest period's end time, an active reward period exists
+        return block.timestamp <= latestPeriod.endTime;
     }
 
     /// @notice Updates the validator state based on the current time.

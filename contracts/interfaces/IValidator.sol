@@ -49,11 +49,6 @@ interface IValidator {
     /// This function will transfer any accumulated fees to the owner's address.
     function claimFees() external;
 
-    /// @notice Returns the address of the token in the pool with the lower address value.
-    /// @dev This function is useful to retrieve the token that is considered "lower" based on its address.
-    /// @return address The address of the token with the lower address value.
-    function token() external view returns (address);
-
     /// @notice Returns the address of the linked `validatorFees.sol` contract.
     /// @dev This function returns the address of the `validatorFees.sol` contract, which handles validator fee-related functionalities.
     /// @return address The address of the linked `validatorFees` contract.
