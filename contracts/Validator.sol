@@ -12,7 +12,7 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 
 import "./interfaces/IValidatorFactory.sol";
 import "./interfaces/IValidator.sol";
-import "./interfaces/IVoter.sol";
+import "./interfaces/IGovernance.sol";
 import "./ValidatorFees.sol";
 
 /// @title Validator Contract
@@ -305,7 +305,7 @@ contract Validator is IValidator, ReentrancyGuard {
         user.rewardDebt = 0;
 
         // Reset votes associated with the user
-        IVoter(voter).resetVotes(msg.sender);
+        IGovernance(voter).resetVotes(msg.sender);
 
         // Update the global staking total
         totalStaked -= user.amount;

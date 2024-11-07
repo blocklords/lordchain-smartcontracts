@@ -7,15 +7,15 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import "./interfaces/IValidator.sol";
 import "./interfaces/IValidatorFactory.sol";
-import "./interfaces/IVoter.sol";
+import "./interfaces/IGovernance.sol";
 
 /**
- * @title Voter Contract
+ * @title Governance Contract
  * @dev This contract allows users to vote on proposals, including creating proposals, 
  * voting with veLrds balance, and distributing rewards to validators for specific boost proposals.
  * It also includes functionality to reset votes and manage vote rewards.
  */
-contract Voter is IVoter, Ownable, ReentrancyGuard {
+contract Governance is IGovernance, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Proposal {
@@ -333,7 +333,7 @@ contract Voter is IVoter, Ownable, ReentrancyGuard {
         emit BoostRewardDistributed(proposalId, totalBoostReward);
     }
 
-    /// @inheritdoc IVoter
+    /// @inheritdoc IGovernance
     function resetVotes(address _user) external {
         if (msg.sender != masterValidator) revert NotValidator();
         userTotalVotes[_user] = 0;
