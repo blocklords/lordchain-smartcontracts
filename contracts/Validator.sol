@@ -462,7 +462,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
             // Update the user's staked amount
             _user.amount += amountAfterFee;
-            totalStaked += _user.amount;
+            totalStaked  += amountAfterFee;
 
             // If a lock duration is provided, set the lock start and end times
             if (_lockDuration > 0) {
