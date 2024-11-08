@@ -139,15 +139,15 @@ contract Validator is IValidator, ReentrancyGuard {
 
         if (_quality == 1) {
             depositFee = 0;
-            claimFee = 0;
-            _name = nodeType;
-            isClaimed = true;
+            claimFee   = 0;
+            _name      = nodeType;
+            isClaimed  = true;
         } else {
             depositFee = 100; // 1%
-            claimFee = 500; // 5%
+            claimFee   = 500; // 5%
+            _name      = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
+            isClaimed  = false;
             nodeCounts[_quality]++;
-            _name = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
-            isClaimed = false;
         }
         verifier = _verifier;
         isPaused = false;
