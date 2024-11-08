@@ -29,7 +29,7 @@ contract Validator is IValidator, ReentrancyGuard {
         address stakeToken;         // The address of the token that users stake
         address rewardToken;        // The address of the token that is used as the reward
         uint256 totalReward;        // The total reward amount for this period
-        uint256 accTokenPerShare; // The accumulated tokens per share for this reward period
+        uint256 accTokenPerShare;   // The accumulated tokens per share for this reward period
     }
 
     // UserInfo struct is used to store staking information for each user
@@ -39,8 +39,8 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 lockEndTime;             // The end time of the staking lock period
         uint256 rewardDebt;              // The reward debt, used to calculate the user's reward share
         uint256 lastUpdatedRewardPeriod; // The index of the last reward period in which rewards were calculated for the user
-        uint256 boostRewardDebt;         // The boost reward debt, used to calculate the user's boost reward share
-        uint256 lastClaimedBoostIndex;   // The index of the last boost reward period in which rewards were calculated for the user
+        // uint256 boostRewardDebt;         // The boost reward debt, used to calculate the user's boost reward share
+        // uint256 lastClaimedBoostIndex;   // The index of the last boost reward period in which rewards were calculated for the user
         bool autoMax;                    // Indicates whether the user has enabled automatic maximum staking
     }
 
@@ -82,7 +82,7 @@ contract Validator is IValidator, ReentrancyGuard {
     address public validatorFees;                           // The address of the validator fees contract
     /// @inheritdoc IValidator
     address public factory;                                 // The address of the PoolFactory that created this contract
-    // address private voter;                               // The address of the voter (for validation purposes)
+    // address private voter;                                  // The address of the voter (for validation purposes)
     address private governance;                             // The address of the governance (for validation purposes)
     address public admin;                                   // The address of the contract admin
     address public owner;                                   // The address of the contract owner
@@ -679,6 +679,15 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 veLrds = (user.amount * duration) / MAX_LOCK;
 
         return veLrds;
+    }
+
+    /// @inheritdoc IValidator
+    function stakeFor(address _user, uint256 _amount) external onlyGovernance {
+        // Increase the user's staked amount
+        UserInfo storage use = userInfo[_user];
+        use.amount += _amount;
+
+        emit StakeForUser(_user, _amount);
     }
 
     /**

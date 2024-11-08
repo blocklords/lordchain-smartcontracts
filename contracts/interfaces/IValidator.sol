@@ -47,6 +47,7 @@ interface IValidator {
     event SetClaimFee(address indexed sender, uint256 fee);
     event BoostRewardAdded(uint256 startTime, uint256 endTime, uint256 totalReward);
     event BoostRewardClaimed(address indexed sender, uint256 pendingBoostReward);
+    event StakeForUser(address indexed sender, uint256 amount);
 
     /// @notice Claims accumulated fees for the contract owner.
     /// @dev Only the contract owner can call this function to claim accumulated fees. 
@@ -127,5 +128,14 @@ interface IValidator {
     /// @param _rewardToken .
     /// @dev This function allows the contract to assign a reward to a validator within a specific time window.
     function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount,address _rewardToken) external;
+
+    /**
+    * @dev Allows the Governance contract to stake tokens on behalf of a user.
+    * This function can only be called by the authorized Governance contract.
+    * It increases the user's staked balance by the specified amount.
+    * @param _user The address of the user for whom tokens are being staked.
+    * @param _amount The amount of tokens to stake for the user.
+    */
+    function stakeFor(address _user, uint256 _amount) external;
 
 }

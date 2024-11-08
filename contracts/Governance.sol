@@ -64,6 +64,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     mapping(uint256 => bool) public isBoostVote;                                            // Mapping to check if a proposal is a boost proposal
     mapping(uint256 => VoteReward) public voteRewards;                                      // Mapping of proposal ID to VoteReward
     mapping(uint256 => address[]) public proposalVoters;                                    // Records all the voters' addresses for each proposal
+    mapping(uint256 => mapping(address => uint256)) public pendingRewards;                  // Mapping to record each user's pending rewards for each proposal
 
     /**
      * @dev Constructor to initialize the Voter contract
@@ -453,8 +454,9 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
 
     /**
     * @dev Executes the reward distribution for a given proposal based on the vote weight.
-    * This function is called by the owner to distribute rewards to voters after the voting period ends.
-    * @param _proposalId The ID of the proposal whose vote rewards are being distributed.
+    * This function is called by the owner to calculate rewards for voters after the voting period ends.
+    * It no longer transfers the rewards immediately but records them for each voter.
+    * @param _proposalId The ID of the proposal whose vote rewards are being calculated.
     */
     function executeVoteRewardProposal(uint256 _proposalId) external onlyOwner {
         // Retrieve the reward details for the proposal
@@ -463,7 +465,6 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         uint256 totalVotes   = 0;  // Total votes cast in the proposal
         bool isBoostProposal = isBoostVote[_proposalId];  // Check if the proposal is a boost proposal
         uint256 totalReward  = reward.rewardAmount;  // Total reward to distribute
-        address rewardToken  = reward.rewardToken;  // The token being distributed as a reward
 
         // Ensure that the reward amount is greater than 0
         if (totalReward <= 0) revert ZeroAmount();
@@ -524,15 +525,38 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
 
             // Transfer the calculated reward to the voter
             if (rewardForVoter > 0) {
-                IERC20(rewardToken).safeTransferFrom(bank, voter, rewardForVoter);
+                pendingRewards[_proposalId][voter] += rewardForVoter;
             }
         }
 
-        // Clear the reward data for the proposal after the reward distribution is complete
-        delete voteRewards[_proposalId];
-
         // Update the proposal status to Executed
         proposals[_proposalId].status = FinalizationStatus.Executed;
+    }
+
+    /**
+    * @dev Allows users to claim their pending rewards for a specific proposal and automatically stake them in the MasterValidator contract.
+    * This function transfers the pending reward tokens from the bank to the user and then stakes the reward amount in the MasterValidator contract.
+    * After the reward is claimed and staked, the user's pending reward balance is cleared.
+    * @param _proposalId The ID of the proposal for which the user wants to claim rewards.
+    */
+    function claimAndLock(uint256 _proposalId) external nonReentrant {
+        
+        if (proposals[_proposalId].status != FinalizationStatus.Executed) revert WrongStatus();
+        
+        // Check if the user has pending rewards for the proposal
+        uint256 rewardAmount = pendingRewards[_proposalId][msg.sender];
+        if (rewardAmount <= 0) revert  ZeroAmount();
+
+        // Transfer the reward amount from the bank to the masterValidator
+        IERC20(voteRewards[_proposalId].rewardToken).safeTransferFrom(bank, masterValidator, rewardAmount);
+
+        // Clear the pending rewards for the user in the proposal
+        pendingRewards[_proposalId][msg.sender] = 0;
+
+        // Interact with the MasterValidator or Validator contract to stake the rewards
+        IValidator(masterValidator).stakeFor(msg.sender, rewardAmount);
+
+        emit RewardsClaimedAndLocked(msg.sender, _proposalId, rewardAmount);
     }
 
 }

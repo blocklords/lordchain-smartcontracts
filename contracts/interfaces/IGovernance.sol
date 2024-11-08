@@ -26,6 +26,7 @@ interface IGovernance {
     event BoostRewardTransferred(uint256 indexed proposalId,address indexed validator,uint256 rewardAmount);
     event ProposalCancelled(uint256 indexed proposalId);
     event BoostProposalCancelled(uint256 indexed proposalId);
+    event RewardsClaimedAndLocked(address indexed sender, uint256 proposalId, uint256 rewardAmount);
 
 
     function resetVotes(address _user) external;
