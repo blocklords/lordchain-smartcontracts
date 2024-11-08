@@ -125,7 +125,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         if (_boostStartTime >= _boostEndTime) revert WrongBoostTime();
         if (_boostReward <= 0) revert WrongValue();
 
-        uint256 proposalId = ++proposalCount;
+        uint256 proposalId = proposalCount++;
 
         boostProposals[proposalId] = ValidatorBoostProposal({
             startTime:     _startTime,
@@ -317,7 +317,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             uint256 validatorBoostReward = (validatorVotes * totalBoostReward) / totalVotes;
             if (validatorBoostReward > 0) {
                 IERC20(boostProposal.rewardToken).safeTransferFrom(bank, validator, validatorBoostReward);
-                IValidator(validator).addBoostReward(boostProposal.boostStartTime, boostProposal.boostEndTime, validatorBoostReward);
+                IValidator(validator).addBoostReward(boostProposal.boostStartTime, boostProposal.boostEndTime, validatorBoostReward, boostProposal.rewardToken);
             }
 
             // Record the transfer event
