@@ -627,12 +627,8 @@ contract Validator is IValidator, ReentrancyGuard {
         return pendingReward - _user.rewardDebt;
     }
 
-    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount) external {
-
-    }
-
     /*//////////////////////////////////////////////////////////////
-                               VELRDS
+                               GOVERNANCE
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Return the voting weight of a givne user
