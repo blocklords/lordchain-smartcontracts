@@ -154,9 +154,6 @@ contract  ValidatorFactory is IValidatorFactory {
     function createValidator(address _owner, uint256 _quality, address _verifier) public returns (address validator) {
         uint256 validatorId = allValidators.length;  // Use the length of allValidators array as the validatorId
 
-        // Check if validator already exists by checking if the validatorId already exists in allValidators array
-        if (allValidators[validatorId] != address(0)) revert PoolAlreadyExists();
-
         bytes32 salt = keccak256(abi.encodePacked(_quality, _owner, validatorId)); // salt includes stable as well, 3 parameters
        
         validator = Clones.cloneDeterministic(implementation, salt);
