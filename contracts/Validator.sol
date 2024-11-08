@@ -34,13 +34,25 @@ contract Validator is IValidator, ReentrancyGuard {
 
     // UserInfo struct is used to store staking information for each user
     struct UserInfo {
-        uint256 amount;             // The amount of tokens the user has staked
-        uint256 lockStartTime;      // The start time of the staking lock period
-        uint256 lockEndTime;        // The end time of the staking lock period
-        uint256 rewardDebt;         // The reward debt, used to calculate the user's reward share
+        uint256 amount;                  // The amount of tokens the user has staked
+        uint256 lockStartTime;           // The start time of the staking lock period
+        uint256 lockEndTime;             // The end time of the staking lock period
+        uint256 rewardDebt;              // The reward debt, used to calculate the user's reward share
         uint256 lastUpdatedRewardPeriod; // The index of the last reward period in which rewards were calculated for the user
-        bool autoMax;               // Indicates whether the user has enabled automatic maximum staking
+        uint256 boostRewardDebt;         // The boost reward debt, used to calculate the user's boost reward share
+        uint256 lastClaimedBoostIndex;   // The index of the last boost reward period in which rewards were calculated for the user
+        bool autoMax;                    // Indicates whether the user has enabled automatic maximum staking
     }
+
+    // struct BoostReward {
+    //     uint256 startTime;         // The start time of the reward period
+    //     uint256 endTime;           // The end time of the reward period
+    //     uint256 totalReward;       // The total reward amount for this period
+    //     uint256 claimedAmount;     // The total amount of reward claimed so far
+    //     uint256 accTokenPerShare;  // Accumulated reward per share for calculating user entitlements
+    //     address rewardToken;       // The address of the reward token
+    //     uint256 lastUpdatedTime;   // The last update timestamp for this boost period
+    // }
 
     uint256 public constant DEPOSIT_MAX_FEE = 100;          // The maximum deposit fee (1%)
     uint256 public constant CLAIM_MAX_FEE = 500;            // The maximum claim fee (5%)
@@ -64,12 +76,14 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public validatorId;                             // The unique identifier of the validator
     uint256 public currentRewardPeriodIndex;                // The current reward period index
     uint256 public quality;                                 // The quality level of the validator (e.g., Master, Super, etc.)
+    uint256 public currentBoostRewardPeriodIndex;           // The index of the current active boost reward period
 
     /// @inheritdoc IValidator
     address public validatorFees;                           // The address of the validator fees contract
     /// @inheritdoc IValidator
     address public factory;                                 // The address of the PoolFactory that created this contract
-    address private voter;                                  // The address of the voter (for validation purposes)
+    // address private voter;                               // The address of the voter (for validation purposes)
+    address private governance;                             // The address of the governance (for validation purposes)
     address public admin;                                   // The address of the contract admin
     address public owner;                                   // The address of the contract owner
     address public verifier;                                // The address of the verifier for signature verification
@@ -77,6 +91,8 @@ contract Validator is IValidator, ReentrancyGuard {
 
     // Mapping to store reward periods
     mapping(uint256 => RewardPeriod) public rewardPeriods;
+    // Mapping to store boost reward periods
+    // mapping(uint256 => BoostReward) public boostRewards;
     // Mapping to store information about each user who stakes tokens
     mapping(address => UserInfo) public userInfo;
     // Mapping to store the count of nodes based on their quality
@@ -106,6 +122,12 @@ contract Validator is IValidator, ReentrancyGuard {
         _;
     }
 
+    // Modifier to ensure only the factory can access the function
+    modifier onlyGovernance() {
+        if (msg.sender != governance) revert NotGovernance();
+        _;
+    }
+
     constructor() {}
 
     /// @inheritdoc IValidator
@@ -118,9 +140,9 @@ contract Validator is IValidator, ReentrancyGuard {
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
         factory = msg.sender;
-        voter = IValidatorFactory(factory).voter();
+        // voter = IValidatorFactory(factory).voter();
         (admin, owner, validatorId, quality) = (_admin, _owner, _validatorId, _quality);
-        if (_quality < 1 && _quality > 7) revert QualityWrong();
+        if (_quality < 1 || _quality > 7) revert QualityWrong();
         PRECISION_FACTOR = 10 ** 12;
 
         validatorFees = address(new ValidatorFees());
@@ -263,6 +285,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Update global reward state and user-specific rewards
         _updateValidator();
         _updateUserRewards(user);
+        // _updateBoostReward(currentBoostRewardPeriodIndex - 1);
 
         // Calculate the total pending rewards
         uint256 totalPending = _calculateTotalPending(user);
@@ -282,15 +305,16 @@ contract Validator is IValidator, ReentrancyGuard {
     function withdraw() external nonReentrant whenNotPaused {
         UserInfo storage user = userInfo[msg.sender];
 
-        if (user.amount == 0) revert ZeroAmount();
+        if (user.amount <= 0) revert ZeroAmount();
         if (block.timestamp < user.lockEndTime) revert TimeNotUp();
         if (user.autoMax == true) revert AutoMaxTime();
 
         // Update global reward state and user-specific rewards
         _updateValidator();
         _updateUserRewards(user);
+        // _updateBoostReward(currentBoostRewardPeriodIndex - 1);
 
-        if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).balanceOf(address(this)) < user.amount) revert NotEnoughStakeToken();
+        if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
 
         // Calculate the total pending rewards
         uint256 totalPending = _calculateTotalPending(user);
@@ -299,13 +323,13 @@ contract Validator is IValidator, ReentrancyGuard {
         (uint256 userClaimAmount, uint256 feeAmount) = _claim(totalPending);
 
          // Transfer the user's staked amount back to them
-        IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransfer(address(msg.sender), user.amount);
+        IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransfer(msg.sender, user.amount);
 
         // Reset the user's reward debt to zero after withdrawing
         user.rewardDebt = 0;
 
         // Reset votes associated with the user
-        IGovernance(voter).resetVotes(msg.sender);
+        IGovernance(governance).resetVotes(msg.sender);
 
         // Update the global staking total
         totalStaked -= user.amount;
@@ -443,6 +467,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Update global reward state and user-specific rewards
         _updateValidator();
         _updateUserRewards(_user);
+        // _updateBoostReward(currentBoostRewardPeriodIndex - 1);
 
         if (_amount > 0) {
             // Calculate the deposit fee (depositFee is in basis points, e.g., 500 = 5%)
@@ -503,7 +528,9 @@ contract Validator is IValidator, ReentrancyGuard {
         userClaimAmount = _pending - feeAmount;
 
         // Transfer the fee to the contract owner
-        IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(owner, feeAmount);
+        if (feeAmount > 0) {
+            IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(owner, feeAmount);
+        }
 
         // Transfer the remaining rewards to the user
         IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(msg.sender, userClaimAmount);
@@ -654,6 +681,131 @@ contract Validator is IValidator, ReentrancyGuard {
         return veLrds;
     }
 
+    /**
+     * @dev Adds a new boost reward period.
+     * @param _startTime The start time of the boost reward period.
+     * @param _endTime The end time of the boost reward period.
+     * @param _totalReward The total reward allocated for this boost period.
+     * @param _rewardToken The address of the reward token.
+     */
+    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _totalReward, address _rewardToken) external onlyGovernance {
+
+        // boostRewards[currentBoostRewardPeriodIndex++] = BoostReward({
+        //     startTime: _startTime,
+        //     endTime: _endTime,
+        //     totalReward: _totalReward,
+        //     claimedAmount: 0,
+        //     accTokenPerShare: 0,
+        //     rewardToken: _rewardToken,
+        //     lastUpdatedTime: 0
+        // });
+
+        // emit BoostRewardAdded(_startTime, _endTime, _totalReward);
+    }
+
+    //  /**
+    //  * @dev Allows users to claim accumulated boost rewards.
+    //  * Claims all pending rewards from all unclaimed boost periods and transfers them to the user.
+    //  * The function updates the claimed amount within each boost period and adjusts the user's reward debt.
+    //  */
+    // function claimBoostReward() external nonReentrant whenNotPaused {
+    //     UserInfo storage user = userInfo[msg.sender];
+
+    //     uint256 totalPending = 0;
+    //     // Iterate through all unclaimed boost reward periods
+    //     for (uint256 i = user.lastClaimedBoostIndex; i < currentBoostRewardPeriodIndex; i++) {
+    //         uint256 pending = _calculateBoostPending(user, i);
+
+    //         // Get the remaining claimable amount for the boost reward period
+    //         BoostReward storage boost = boostRewards[i];
+    //         uint256 remainingReward = boost.totalReward - boost.claimedAmount;
+
+    //         // Ensure there is enough reward available to claim
+    //         if (pending > remainingReward) revert NotEnoughRewardToken();
+    //         totalPending += pending;
+    //         boost.claimedAmount += pending;  // Update the claimed amount for the boost period
+    //     }
+
+    //     if (totalPending <= 0) revert InvalidBoostReward();
+
+    //     // Transfer the total pending boost reward to the user
+    //     IERC20(boostRewards[currentBoostRewardPeriodIndex - 1].rewardToken).transfer(msg.sender, totalPending);
+
+    //     // Update the user's boostRewardDebt and lastClaimedBoostIndex
+    //     user.boostRewardDebt = (user.amount * boostRewards[currentBoostRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
+    //     user.lastClaimedBoostIndex = currentBoostRewardPeriodIndex - 1;
+
+    //     emit BoostRewardClaimed(msg.sender, totalPending);
+    // }
+
+    //  /**
+    //  * @dev Calculates the pending boost reward for a user in a specified boost period.
+    //  * @param _user The user's information.
+    //  * @param _boostIndex The index of the boost period for which to calculate pending rewards.
+    //  * @return The pending reward amount for the user in the specified boost period.
+    //  */
+    // function _calculateBoostPending(UserInfo storage _user, uint256 _boostIndex) internal view returns (uint256) {
+    //     BoostReward memory boost = boostRewards[_boostIndex];
+
+    //     // If the user's staked amount is 0 or the current time is before the reward period start time, return 0 pending reward
+    //     if (_user.amount == 0 || block.timestamp < boost.startTime) {
+    //         return 0;
+    //     }
+
+    //     // Calculate pending rewards directly using the updated accTokenPerShare
+    //     uint256 pendingReward = (_user.amount * boost.accTokenPerShare) / PRECISION_FACTOR;
+
+    //     // Subtract the user's boostRewardDebt to get the actual pending reward for the period
+    //     return pendingReward - _user.boostRewardDebt;
+    // }
+
+    // /**
+    //  * @dev Updates the boost reward state for a specific boost period.
+    //  * Calculates and updates the accumulated rewards (accTokenPerShare) since the last update.
+    //  * @param _boostIndex The index of the boost period to update.
+    //  */
+    // function _updateBoostReward(uint256 _boostIndex) internal {
+    //     BoostReward storage boost = boostRewards[_boostIndex];
+
+    //     // Check if the boost period is active; return if it is not active or if no rewards are available
+    //     if (block.timestamp < boost.startTime || block.timestamp > boost.endTime || boost.totalReward == 0) {
+    //         return;
+    //     }
+
+    //     // Ensure the boost period has a valid time range and total reward greater than 0
+    //     if (block.timestamp > boost.startTime && boost.totalReward > 0) {
+    //         // Calculate reward per second
+    //         uint256 rewardPerSecond = boost.totalReward / (boost.endTime - boost.startTime);
+
+    //         // Use boost.lastUpdatedTime as the starting point for the multiplier
+    //         uint256 multiplier = _getMultiplier(boost.lastUpdatedTime, block.timestamp, boost.endTime);
+
+    //         // Update accTokenPerShare with the accumulated rewards
+    //         uint256 boostReward = multiplier * rewardPerSecond;
+    //         boost.accTokenPerShare += (boostReward * PRECISION_FACTOR) / totalStaked;
+
+    //         // Update lastUpdatedTime to the current timestamp
+    //         boost.lastUpdatedTime = block.timestamp;
+    //     }
+    // }
+
+    // /**
+    //  * @dev Retrieves the total pending boost reward for a user across all unclaimed boost periods.
+    //  * @param userAddress The address of the user.
+    //  * @return The total pending boost reward for the specified user.
+    //  */
+    // function getBoostReward(address userAddress) external view returns (uint256) {
+    //     UserInfo storage user = userInfo[userAddress];
+    //     uint256 totalPending = 0;
+
+    //     // Iterate through all unclaimed boost reward periods
+    //     for (uint256 i = user.lastClaimedBoostIndex; i < currentBoostRewardPeriodIndex; i++) {
+    //         totalPending += _calculateBoostPending(user, i);
+    //     }
+
+    //     return totalPending;
+    // }
+
     /*//////////////////////////////////////////////////////////////
                                OWNER
     //////////////////////////////////////////////////////////////*/
@@ -719,16 +871,16 @@ contract Validator is IValidator, ReentrancyGuard {
         masterValidator = _validator;
     }
 
-    /// @notice Sets the address of the voter.
-    /// @dev This function allows the admin to set or update the voter address.
+    /// @notice Sets the address of the governance.
+    /// @dev This function allows the admin to set or update the governance address.
     ///      The new address must be non-zero to ensure valid assignments.
-    /// @param _voter The address of the new voter.
-    function setVoter(address _voter) external onlyAdmin {
+    /// @param _governance The address of the new governance.
+    function setGovernance(address _governance) external onlyAdmin {
         // Ensure the provided address is not zero
-        if (_voter == address(0)) revert ZeroAddress();
+        if (_governance == address(0)) revert ZeroAddress();
         
-        // Set the voter address
-        voter = _voter;
+        // Set the governance address
+        governance = _governance;
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -6,6 +6,7 @@ interface IValidator {
     error NotAdmin();
     error NotOwner();
     error NotFactory();
+    error NotGovernance();
     error FeeTooHigh();
     error WrongFee();
     error ZeroAmount();
@@ -34,6 +35,7 @@ interface IValidator {
     error LockTimeExceeded();
     error ContractPaused();
     error StateUnchanged();
+    error InvalidBoostReward();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
@@ -43,6 +45,8 @@ interface IValidator {
     event PurchaseValidator(address indexed sender, uint256 NP);
     event SetDepositFee(address indexed sender, uint256 fee);
     event SetClaimFee(address indexed sender, uint256 fee);
+    event BoostRewardAdded(uint256 startTime, uint256 endTime, uint256 totalReward);
+    event BoostRewardClaimed(address indexed sender, uint256 pendingBoostReward);
 
     /// @notice Claims accumulated fees for the contract owner.
     /// @dev Only the contract owner can call this function to claim accumulated fees. 
@@ -120,7 +124,8 @@ interface IValidator {
     /// @param _startTime The start time of the boost period.
     /// @param _endTime The end time of the boost period.
     /// @param _rewardAmount The total amount of reward to be distributed to the validator during the boost period.
+    /// @param _rewardToken .
     /// @dev This function allows the contract to assign a reward to a validator within a specific time window.
-    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount) external;
+    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount,address _rewardToken) external;
 
 }
