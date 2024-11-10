@@ -85,7 +85,7 @@ contract Validator is IValidator, ReentrancyGuard {
     address public validatorFees;                           // The address of the validator fees contract
     /// @inheritdoc IValidator
     address public factory;                                 // The address of the PoolFactory that created this contract
-    // address private voter;                                  // The address of the voter (for validation purposes)
+    // address private voter;                               // The address of the voter (for validation purposes)
     address private governance;                             // The address of the governance (for validation purposes)
     address public admin;                                   // The address of the contract admin
     address public owner;                                   // The address of the contract owner
@@ -458,8 +458,13 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @return amount The amount of tokens the user has staked.
     /// @return isAutoMax Whether the auto-max feature is enabled for the user.
     function getAmountAndAutoMax(address _userAddress) external view returns (uint256, bool) {
-        UserInfo storage info = userInfo[_userAddress];
-        return (info.amount, info.autoMax);
+        if (quality == 1) {
+            UserInfo storage info = userInfo[_userAddress];
+            return (info.amount, info.autoMax);
+        } else {
+            (uint256 amount, bool isAutoMax) = IValidator(masterValidator).getAmountAndAutoMax(_userAddress);
+            return (amount, isAutoMax);
+        }
     }
 
     /// @notice Handles the deposit of staked tokens into the contract for a user.
