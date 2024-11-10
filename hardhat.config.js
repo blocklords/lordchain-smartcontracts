@@ -3,12 +3,20 @@ require("dotenv").config();
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
-  solidity: "0.8.28",
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200
+      }
+    }
+  },
 
   networks: {
     baseTestnet: {
       url: "https://sepolia.base.org",
-      accounts: [`0x${process.env.KEY_TESTNET}`], // 用你的私钥替换
+      accounts: [`0x${process.env.KEY_TESTNET}`],
     },
   },
 };
