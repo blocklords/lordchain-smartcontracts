@@ -26,10 +26,9 @@ contract Validator is IValidator, ReentrancyGuard {
     struct RewardPeriod {
         uint256 startTime;          // The start time of the reward period
         uint256 endTime;            // The end time of the reward period
-        address stakeToken;         // The address of the token that users stake
-        address rewardToken;        // The address of the token that is used as the reward
         uint256 totalReward;        // The total reward amount for this period
         uint256 accTokenPerShare;   // The accumulated tokens per share for this reward period
+        uint256 lastRewardTime;                          // The last time rewards were distributed
     }
 
     // UserInfo struct is used to store staking information for each user
@@ -53,7 +52,6 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 totalReward;       // The total reward amount for this period
         uint256 claimedAmount;     // The total amount of reward claimed so far
         uint256 accTokenPerShare;  // Accumulated reward per share for calculating user entitlements
-        address rewardToken;       // The address of the reward token
         uint256 lastUpdatedTime;   // The last update timestamp for this boost period
     }
 
@@ -71,7 +69,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
     string public _name;                                    // The name of the validator contract
 
-    uint256 public lastRewardTime;                          // The last time rewards were distributed
     uint256 public totalStaked;                             // The total amount of staked tokens
     uint256 public PRECISION_FACTOR;                        // The precision factor for reward calculations
     uint256 public depositFee;                              // The deposit fee percentage
@@ -81,6 +78,7 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public quality;                                 // The quality level of the validator (e.g., Master, Super, etc.)
     uint256 public currentBoostRewardPeriodIndex;           // The index of the current active boost reward period
 
+    address public token;                                   // The address of LRDS
     /// @inheritdoc IValidator
     address public validatorFees;                           // The address of the validator fees contract
     /// @inheritdoc IValidator
@@ -137,6 +135,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
     /// @inheritdoc IValidator
     function initialize(
+        address _token,
         address _admin,
         address _owner,
         uint256 _validatorId,
@@ -144,13 +143,14 @@ contract Validator is IValidator, ReentrancyGuard {
         address _verifier
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
+        token = _token;
         factory = msg.sender;
         // voter = IValidatorFactory(factory).voter();
         (admin, owner, validatorId, quality) = (_admin, _owner, _validatorId, _quality);
         if (_quality < 1 || _quality > 7) revert QualityWrong();
         PRECISION_FACTOR = 10 ** 12;
 
-        validatorFees = address(new ValidatorFees());
+        validatorFees = address(new ValidatorFees(token));
 
         string[7] memory nodeTypes = [
             "BLOCKLORDS Master",      // index 0, quality 1
@@ -183,19 +183,13 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @notice Sets a new reward period for staking.
     /// @param _startTime The start time of the reward period (must be in the future).
     /// @param _endTime The end time of the reward period (must be after start time).
-    /// @param _stakeToken The address of the token that users will stake.
-    /// @param _rewardToken The address of the token that will be rewarded.
     /// @param _totalReward The total amount of reward tokens available for this period.
     /// @dev This function can only be called by the admin.
     function setRewardPeriod(
         uint256 _startTime,
         uint256 _endTime,
-        address _stakeToken,
-        address _rewardToken,
         uint256 _totalReward
     ) external nonReentrant onlyAdmin {
-
-        ValidatorFees(validatorFees).setToken(_stakeToken);
 
         // Check if total reward is greater than 0
         if (_totalReward <= 0) revert InvalidTotalReward();
@@ -209,16 +203,15 @@ contract Validator is IValidator, ReentrancyGuard {
         } else {
             // For subsequent reward periods, start time should be the end time of the previous period
             RewardPeriod memory previousPeriod = rewardPeriods[currentRewardPeriodIndex - 1];
-            if (_startTime != previousPeriod.endTime) revert StartTimeNotAsExpected();
+            if (_startTime <= previousPeriod.endTime) revert StartTimeNotAsExpected();
         }
 
         rewardPeriods[currentRewardPeriodIndex++] = RewardPeriod({
             startTime: _startTime,
             endTime: _endTime,
-            stakeToken: _stakeToken,
-            rewardToken: _rewardToken,
             totalReward: _totalReward,
-            accTokenPerShare: 0
+            accTokenPerShare: 0,
+            lastRewardTime: _startTime
         });
         
         IValidatorFactory(factory).AddTotalValidators(_startTime, _endTime, _totalReward);
@@ -319,7 +312,7 @@ contract Validator is IValidator, ReentrancyGuard {
         _updateUserRewards(user);
         _updateBoostReward(currentBoostRewardPeriodIndex);
 
-        if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
+        if (IERC20(token).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
 
         // Calculate the total pending rewards
         uint256 totalPending = _calculateTotalPending(user);
@@ -328,7 +321,7 @@ contract Validator is IValidator, ReentrancyGuard {
         (uint256 userClaimAmount, uint256 feeAmount) = _claim(totalPending);
 
          // Transfer the user's staked amount back to them
-        IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransfer(msg.sender, user.amount);
+        IERC20(token).safeTransfer(msg.sender, user.amount);
 
         // Reset the user's reward debt to zero after withdrawing
         user.rewardDebt = 0;
@@ -488,11 +481,11 @@ contract Validator is IValidator, ReentrancyGuard {
             if (amountAfterFee <= 0) revert InsufficientAmount();
 
             // Transfer the staked amount to the contract
-            IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransferFrom(msg.sender, address(this), amountAfterFee);
+            IERC20(token).safeTransferFrom(msg.sender, address(this), amountAfterFee);
 
             // If there is a fee, transfer it to the validatorFees address
             if (fee > 0) {
-                IERC20(rewardPeriods[currentRewardPeriodIndex - 1].stakeToken).safeTransferFrom(msg.sender, validatorFees, fee);
+                IERC20(token).safeTransferFrom(msg.sender, validatorFees, fee);
             }
 
             // Update the user's staked amount
@@ -514,10 +507,32 @@ contract Validator is IValidator, ReentrancyGuard {
             _user.lockEndTime = block.timestamp < _user.lockEndTime ? _user.lockEndTime + _lockDuration : block.timestamp + _lockDuration;
         }
 
-        _user.rewardDebt = (_user.amount * rewardPeriods[currentRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
+        _user.rewardDebt = (_user.amount * rewardPeriods[getCurrentPeriod()].accTokenPerShare) / PRECISION_FACTOR;
 
         // Emit the Deposit event
         emit Deposit(msg.sender, _amount, _lockDuration, _user.lockEndTime);
+    }
+
+    /// @notice Returns the index of the current active reward period based on the current time.
+    /// @dev This function checks which reward period is currently active based on the block timestamp.
+    function getCurrentPeriod() internal view returns(uint256) {
+        // If there are no reward periods, return 0
+        if (currentRewardPeriodIndex == 0) {
+            return 0;
+        }
+        
+        // Loop through all reward periods and check if the current time is within any of them
+        for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
+            RewardPeriod storage period = rewardPeriods[i];
+            
+            // If the current time is within the reward period's valid range (startTime to endTime)
+            if (block.timestamp >= period.startTime && block.timestamp <= period.endTime) {
+                return i; // Return the index of the active period
+            }
+        }
+
+        // If no active reward period is found, return the index of the latest reward period
+        return currentRewardPeriodIndex - 1;
     }
 
     /// @notice Claims the pending rewards for a user and transfers the reward amount.
@@ -531,7 +546,7 @@ contract Validator is IValidator, ReentrancyGuard {
         if (_pending == 0) return (0, 0);
 
         // Ensure the contract has enough reward tokens to cover the pending claim
-        if (IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).balanceOf(address(this)) < _pending) revert NotEnoughRewardToken();
+        if (IERC20(token).balanceOf(address(this)) < _pending) revert NotEnoughRewardToken();
 
         // Calculate the claim fee (claimFee is in basis points, e.g., 300 = 3%)
         feeAmount = (_pending * claimFee) / 10000;
@@ -539,11 +554,11 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Transfer the fee to the contract owner
         if (feeAmount > 0) {
-            IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(owner, feeAmount);
+            IERC20(token).safeTransfer(owner, feeAmount);
         }
 
         // Transfer the remaining rewards to the user
-        IERC20(rewardPeriods[currentRewardPeriodIndex - 1].rewardToken).safeTransfer(msg.sender, userClaimAmount);
+        IERC20(token).safeTransfer(msg.sender, userClaimAmount);
     }
 
     /// @notice Calculates the total pending rewards for a user across all eligible reward periods.
@@ -560,23 +575,31 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @notice Updates the validator state based on the current time.
     /// @dev This function should be called regularly to ensure accurate reward calculations.
     function _updateValidator() internal {
-        if (block.timestamp <= lastRewardTime) return;
 
+        // If no tokens are staked, no need to update
         if (totalStaked == 0) {
-            lastRewardTime = block.timestamp;
             return;
         }
 
-        // Only update the current active reward period
-        RewardPeriod storage  currentPeriod = rewardPeriods[currentRewardPeriodIndex - 1];
-        
-        // Check if the current time is within the current reward period
-        if (block.timestamp >= currentPeriod.startTime && block.timestamp <= currentPeriod.endTime) {
-            uint256 lrdsReward = _calculateLrdsReward(currentRewardPeriodIndex - 1);
-            currentPeriod.accTokenPerShare += (lrdsReward * PRECISION_FACTOR) / totalStaked;
-        }
+        // Loop through all reward periods to update rewards for the active periods
+        for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
+            RewardPeriod storage period = rewardPeriods[i];
 
-        lastRewardTime = block.timestamp;
+            // Check if the current time is within the valid time range of the reward period
+            if (block.timestamp >= period.startTime && block.timestamp <= period.endTime) {
+                // If the current time is earlier than the last reward update time, skip this period
+                if (block.timestamp <= period.lastRewardTime) {
+                    continue;
+                }
+
+                // Calculate the reward for the current period and update the accumulated rewards per share
+                uint256 lrdsReward = _calculateLrdsReward(i);
+                period.accTokenPerShare += (lrdsReward * PRECISION_FACTOR) / totalStaked;
+
+                // Update the last reward time for the current period to the current block timestamp
+                period.lastRewardTime = block.timestamp;
+            }
+        }
     }
 
     /// @notice Updates the user's accumulated rewards across active reward periods.
@@ -610,7 +633,7 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 rewardPerSecond = period.totalReward / (period.endTime - period.startTime);
 
         // Calculate the multiplier based on the elapsed time since the last reward time
-        uint256 multiplier = _getMultiplier(lastRewardTime, block.timestamp, period.endTime);
+        uint256 multiplier = _getMultiplier(period.lastRewardTime, block.timestamp, period.endTime);
 
         // Return the calculated reward, applying the multiplier to the reward per second
         return multiplier * rewardPerSecond;
@@ -695,9 +718,8 @@ contract Validator is IValidator, ReentrancyGuard {
      * @param _startTime The start time of the boost reward period.
      * @param _endTime The end time of the boost reward period.
      * @param _totalReward The total reward allocated for this boost period.
-     * @param _rewardToken The address of the reward token.
      */
-    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _totalReward, address _rewardToken) external onlyGovernance {
+    function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external onlyGovernance {
 
         boostRewards[currentBoostRewardPeriodIndex++] = BoostReward({
             startTime: _startTime,
@@ -705,7 +727,6 @@ contract Validator is IValidator, ReentrancyGuard {
             totalReward: _totalReward,
             claimedAmount: 0,
             accTokenPerShare: 0,
-            rewardToken: _rewardToken,
             lastUpdatedTime: 0
         });
 
@@ -739,7 +760,7 @@ contract Validator is IValidator, ReentrancyGuard {
         if (totalPending <= 0) revert InvalidBoostReward();
 
         // Transfer the total pending boost reward to the user
-        IERC20(boostRewards[currentBoostRewardPeriodIndex - 1].rewardToken).transfer(msg.sender, totalPending);
+        IERC20(token).transfer(msg.sender, totalPending);
 
         // Update the user's boostRewardDebt and lastClaimedBoostIndex
         userBoost.boostRewardDebt = (user.amount * boostRewards[currentBoostRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;

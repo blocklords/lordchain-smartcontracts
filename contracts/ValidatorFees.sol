@@ -8,13 +8,14 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 contract ValidatorFees {
     using SafeERC20 for IERC20;
     address internal immutable validator; // The validator it is bonded to
-    address internal token; // token of validator, saved localy and statically for gas optimization
+    address internal immutable token;     // token of validator, saved localy and statically for gas optimization
 
     error NotValidator();
     error ZeroFee();
 
-    constructor() {
+    constructor(address _token) {
         validator = msg.sender;
+        token = _token;
     }
 
     /// @notice Allow the validator to transfer fees to users
@@ -27,12 +28,6 @@ contract ValidatorFees {
         IERC20(token).safeTransfer(_recipient, balance);
 
         claimed = balance;
-    }
-
-    function setToken(address _token) external {
-        if (msg.sender != validator) revert NotValidator();
-
-        token = _token;
     }
     
 }

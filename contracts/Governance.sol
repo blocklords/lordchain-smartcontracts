@@ -31,15 +31,9 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         uint256 endTime;                // endTime The end time of the boost proposal
         string metadataURI;             // metadataURI URI for additional metadata associated with the boost proposal
         uint256 boostReward;            // boostReward The total boost reward to be distributed to validators
-        address rewardToken;            // rewardToken The token used for the reward
         uint256 boostStartTime;         // boostStartTime The start time for the distribution of the boost reward
         uint256 boostEndTime;           // boostEndTime The end time for the distribution of the boost reward
         FinalizationStatus status;      // status The current status of the boost proposal (Pending, Executed, Cancelled)
-    }
-
-    struct VoteReward {
-        address rewardToken;  // The address of the reward token (ERC20 token)
-        uint256 rewardAmount; // The total reward amount allocated for the proposal
     }
     
     enum FinalizationStatus {
@@ -52,6 +46,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     address public masterValidator;        // Address of the master validator contract
     address public factory;                // Address of the factory contract
     address public bank;                   // Address of the bank contract
+    address public token;                  // Address of the LRDS
 
     mapping(uint256 => Proposal) public proposals;                                          // Mapping from proposal ID to Proposal struct
     mapping(uint256 => ValidatorBoostProposal) public boostProposals;                       // Mapping from proposal ID to ValidatorBoostProposal struct
@@ -62,7 +57,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(uint256 => address)) public proposalValidators;              // Mapping from proposal ID -> validator index -> validator address
     mapping(uint256 => uint256) public proposalValidatorCounts;                             // Mapping from proposal ID -> number of validators
     mapping(uint256 => bool) public isBoostVote;                                            // Mapping to check if a proposal is a boost proposal
-    mapping(uint256 => VoteReward) public voteRewards;                                      // Mapping of proposal ID to VoteReward
+    mapping(uint256 => uint256) public voteReward;                                          // Mapping of proposal ID to VoteReward
     mapping(uint256 => address[]) public proposalVoters;                                    // Records all the voters' addresses for each proposal
     mapping(uint256 => mapping(address => uint256)) public pendingRewards;                  // Mapping to record each user's pending rewards for each proposal
 
@@ -72,10 +67,11 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
      * @param _factory The address of the factory contract
      * @param _bank The address of the bank contract
      */
-    constructor(address _masterValidator, address _factory, address _bank) Ownable(msg.sender) {
+    constructor(address _masterValidator, address _factory, address _bank, address _token) Ownable(msg.sender) {
         masterValidator = _masterValidator;
         factory = _factory;
         bank = _bank;
+        token = _token;
     }
 
     /**
@@ -108,7 +104,6 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
      * @param _endTime The end time of the boost proposal
      * @param _metadataURI URI for additional metadata associated with the boost proposal
      * @param _boostReward The total boost reward to be distributed to validators
-     * @param _rewardToken The token used for the reward
      * @param _boostStartTime The start time for the distribution of the boost reward
      * @param _boostEndTime The end time for the distribution of the boost reward
      */
@@ -117,7 +112,6 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         uint256 _endTime,
         string calldata _metadataURI,
         uint256 _boostReward,
-        address _rewardToken,
         uint256 _boostStartTime,
         uint256 _boostEndTime
     ) external onlyOwner {
@@ -133,7 +127,6 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             endTime:       _endTime,
             metadataURI:   _metadataURI,
             boostReward:   _boostReward,
-            rewardToken:   _rewardToken,
             boostStartTime:_boostStartTime,
             boostEndTime:  _boostEndTime,
             status:        FinalizationStatus.Pending
@@ -317,8 +310,8 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             // Calculate the validator's share of the boost reward
             uint256 validatorBoostReward = (validatorVotes * totalBoostReward) / totalVotes;
             if (validatorBoostReward > 0) {
-                IERC20(boostProposal.rewardToken).safeTransferFrom(bank, validator, validatorBoostReward);
-                IValidator(validator).addBoostReward(boostProposal.boostStartTime, boostProposal.boostEndTime, validatorBoostReward, boostProposal.rewardToken);
+                IERC20(token).safeTransferFrom(bank, validator, validatorBoostReward);
+                IValidator(validator).addBoostReward(boostProposal.boostStartTime, boostProposal.boostEndTime, validatorBoostReward);
             }
 
             // Record the transfer event
@@ -435,21 +428,15 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     * @dev Sets the reward token and reward amount for a given proposal.
     * This function allows the contract owner to configure the reward settings for a specific proposal.
     * @param _proposalId The ID of the proposal for which the reward is being set.
-    * @param _rewardToken The address of the reward token (ERC20 token) that will be used to reward voters.
     * @param _rewardAmount The total reward amount allocated for the proposal.
     */
-    function setVoteReward(uint256 _proposalId, address _rewardToken, uint256 _rewardAmount) external onlyOwner {
-        // Check that the reward token address is valid (not zero address)
-        if (_rewardToken == address(0)) revert ZeroAddress();
+    function setVoteReward(uint256 _proposalId, uint256 _rewardAmount) external onlyOwner {
         
         // Check that the reward amount is greater than zero
         if (_rewardAmount <= 0) revert WrongValue();
 
         // Set the reward token address and reward amount for the proposal
-        voteRewards[_proposalId] = VoteReward({
-            rewardToken : _rewardToken,
-            rewardAmount: _rewardAmount
-        });
+        voteReward[_proposalId] = _rewardAmount;
     }
 
     /**
@@ -459,12 +446,10 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     * @param _proposalId The ID of the proposal whose vote rewards are being calculated.
     */
     function executeVoteRewardProposal(uint256 _proposalId) external onlyOwner {
-        // Retrieve the reward details for the proposal
-        VoteReward storage reward = voteRewards[_proposalId];
 
         uint256 totalVotes   = 0;  // Total votes cast in the proposal
         bool isBoostProposal = isBoostVote[_proposalId];  // Check if the proposal is a boost proposal
-        uint256 totalReward  = reward.rewardAmount;  // Total reward to distribute
+        uint256 totalReward  = voteReward[_proposalId];  // Total reward to distribute
 
         // Ensure that the reward amount is greater than 0
         if (totalReward <= 0) revert ZeroAmount();
@@ -548,7 +533,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         if (rewardAmount <= 0) revert  ZeroAmount();
 
         // Transfer the reward amount from the bank to the masterValidator
-        IERC20(voteRewards[_proposalId].rewardToken).safeTransferFrom(bank, masterValidator, rewardAmount);
+        IERC20(token).safeTransferFrom(bank, masterValidator, rewardAmount);
 
         // Clear the pending rewards for the user in the proposal
         pendingRewards[_proposalId][msg.sender] = 0;

@@ -57,11 +57,12 @@ interface IValidatorFactory {
 
     /// @notice Creates a new validator for a given owner, quality, and verifier.
     /// @dev This function is used to create a new validator, initializing it with the provided token address, owner address, and quality level.
+    /// @param _token The address of the LRDS.
     /// @param _owner The address of the validator's owner.
     /// @param _quality The quality level of the new validator.
     /// @param _verifier The address of the verifier.
     /// @return validator The address of the newly created validator.
-    function createValidator(address _owner, uint256 _quality, address _verifier) external returns (address validator);
+    function createValidator(address _token, address _owner, uint256 _quality, address _verifier) external returns (address validator);
 
     /// @notice Increases the total staked amount by the specified amount.
     /// @dev This function is used to add a specified amount to the total staked amount across the system.
