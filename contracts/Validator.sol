@@ -391,7 +391,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Check that the user has staked enough tokens to meet the required minimum amount for the given quality
         uint256 requiredAmount = IValidatorFactory(factory).minAmountForQuality(quality);
-        if (amount < requiredAmount) revert InsufficientAmount();
+        if (amount < requiredAmount * MULTIPLIER) revert InsufficientAmount();
 
         // Verify the signature by hashing the message and recovering the address
         {
