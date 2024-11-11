@@ -275,6 +275,11 @@ contract Validator is IValidator, ReentrancyGuard {
         }
 
         if (newEndTime > block.timestamp + MAX_LOCK) revert("GreaterThanMaxTime");
+        
+        // Reset votes associated with the user
+        if (block.timestamp > user.lockEndTime) {
+            IGovernance(governance).resetVotes(msg.sender);
+        }
 
         _deposit(0, _lockDuration, user);
     }
@@ -511,7 +516,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // If lock duration is provided but no amount is being deposited, just extend the lock duration
         if (_lockDuration > 0 && _amount == 0) {
-            _user.lockEndTime += _lockDuration;
+            _user.lockEndTime = block.timestamp < _user.lockEndTime ? _user.lockEndTime + _lockDuration : block.timestamp + _lockDuration;
         }
 
         _user.rewardDebt = (_user.amount * rewardPeriods[currentRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
