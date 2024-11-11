@@ -700,6 +700,7 @@ contract Validator is IValidator, ReentrancyGuard {
     function stakeFor(address _user, uint256 _amount) external onlyGovernance {
         // Increase the user's staked amount
         UserInfo storage use = userInfo[_user];
+        if (use.amount <= 0 ) revert NoLockCreated(); 
         use.amount += _amount;
 
         emit StakeForUser(_user, _amount);
