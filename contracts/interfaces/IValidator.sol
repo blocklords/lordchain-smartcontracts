@@ -22,7 +22,6 @@ interface IValidator {
     error StartTimeNotInFuture();
     error EndTimeBeforeStartTime();
     error StartTimeNotAsExpected();
-    error RewardPeriodNotActive();
     error TheSameValue();
     error AutoMaxTime();
     error QualityWrong();

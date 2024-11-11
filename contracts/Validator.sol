@@ -232,7 +232,6 @@ contract Validator is IValidator, ReentrancyGuard {
     function createLock(uint256 _amount, uint256 _lockDuration) external nonReentrant whenNotPaused {
         if (_amount == 0) revert ZeroAmount();
         if (_lockDuration == 0 || _lockDuration < MIN_LOCK || _lockDuration > MAX_LOCK) revert WrongDuration();
-        if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount > 0 || user.lockStartTime > 0) revert AllreadyLocked();
@@ -245,7 +244,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     function increaseAmount(uint256 _amount) external nonReentrant whenNotPaused {
         if (_amount == 0) revert ZeroAmount();
-        if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
@@ -259,7 +257,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     function extendDuration(uint256 _lockDuration) external nonReentrant whenNotPaused {
         if (_lockDuration <= 0 || _lockDuration > MAX_LOCK) revert WrongDuration();
-        if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
 
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
@@ -286,8 +283,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
     /// @inheritdoc IValidator
     function claim() external nonReentrant whenNotPaused {
-        if (!_isRewardPeriodActive()) revert RewardPeriodNotActive();
-
         UserInfo storage user = userInfo[msg.sender];
 
         if (user.amount == 0) revert NoStakeFound();
@@ -560,17 +555,6 @@ contract Validator is IValidator, ReentrancyGuard {
             uint256 pending = _calculatePending(user, i);
             totalPending += pending;
         }
-    }
-
-    /// @notice Checks if any future or ongoing reward period is currently active.
-    /// @return A boolean indicating if any reward period is active.
-    function _isRewardPeriodActive() internal view returns (bool) {
-        if (currentRewardPeriodIndex == 0) {
-            return false; // No reward periods have been set
-        }
-        RewardPeriod memory latestPeriod = rewardPeriods[currentRewardPeriodIndex - 1];
-        // If the current time is within the latest period's end time, an active reward period exists
-        return block.timestamp <= latestPeriod.endTime;
     }
 
     /// @notice Updates the validator state based on the current time.
