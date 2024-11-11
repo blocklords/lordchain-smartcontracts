@@ -58,8 +58,10 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     mapping(uint256 => uint256) public proposalValidatorCounts;                             // Mapping from proposal ID -> number of validators
     mapping(uint256 => bool) public isBoostVote;                                            // Mapping to check if a proposal is a boost proposal
     mapping(uint256 => uint256) public voteReward;                                          // Mapping of proposal ID to VoteReward
-    mapping(uint256 => address[]) public proposalVoters;                                    // Records all the voters' addresses for each proposal
-    mapping(uint256 => mapping(address => uint256)) public pendingRewards;                  // Mapping to record each user's pending rewards for each proposal
+    mapping(uint256 => mapping(address => bool)) public votedStatus;                        // Mapping to record if a player has voted for a specific proposal
+    mapping(uint256 => uint256) public proposalTotalVotes;                                  // Mapping tracks the total votes received by a proposal across all voters.
+    mapping(uint256 => mapping(address => uint256)) public proposalUserTotalVotes;          // Mpping records the individual vote count for each user on each proposal.
+    mapping(uint256 => mapping(address => bool)) public hasClaimedReward;                   // Mapping stores whether a user has already claimed their reward for a given proposal.
 
     /**
      * @dev Constructor to initialize the Voter contract
@@ -154,13 +156,12 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     /**
     * @dev Main vote method, handles both regular and boost proposals.
     * @param _proposalId The ID of the proposal being voted on
-    * @param _choiceIds Array of selected choice IDs (for both regular and boost proposals)
-    * @param _weights Array of vote weights corresponding to each choice (for both regular and boost proposals)
+    * @param _choiceId selected choice ID (for both regular and boost proposals)
+    * @param _weight vote weights corresponding to each choice (for both regular and boost proposals)
     */
-    function vote(uint256 _proposalId, uint256[] calldata _choiceIds, uint256[] calldata _weights) external nonReentrant {
-        // Check if choiceIds and weights lengths match
-        if (_choiceIds.length != _weights.length) revert UnequalLengths();
-
+    function vote(uint256 _proposalId, uint256 _choiceId, uint256 _weight) external nonReentrant {
+        if (_weight > 100 || _weight <= 0) revert InvalidWeight();
+        if (votedStatus[_proposalId][msg.sender] == true) revert UserIsVoted();
 
         // Declare the Proposal storage variable here after checking the type of proposal
         if (isBoostVote[_proposalId]) {
@@ -170,7 +171,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             // Common check for voting period
             _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
 
-            _vote(_proposalId, _choiceIds, _weights, proposalValidatorCounts[_proposalId], true);
+            _vote(_proposalId, _choiceId, _weight, proposalValidatorCounts[_proposalId], true);
         } else {
             // Regular proposal voting logic
             Proposal storage proposal = proposals[_proposalId];
@@ -178,79 +179,61 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             // Common check for voting period
             _checkVotingPeriod(proposal.startTime, proposal.endTime);
 
-            _vote(_proposalId, _choiceIds, _weights, proposal.totalChoices, false);
+            _vote(_proposalId, _choiceId, _weight, proposal.totalChoices, false);
         }
     }
 
     /**
     * @dev Handles voting logic for both regular and boost proposals.
     * @param _proposalId The ID of the proposal being voted on
-    * @param _choiceIds Array of selected choice IDs
-    * @param _weights Array of vote weights corresponding to each choice
+    * @param _choiceId selected choice IDs
+    * @param _weight vote weight corresponding to each choice
     * @param _totalChoices The total number of choices (0 for boost proposals)
     * @param _isBoostVote Boolean flag indicating if the proposal is a boost proposal
     */
     function _vote(
         uint256 _proposalId, 
-        uint256[] calldata _choiceIds, 
-        uint256[] calldata _weights, 
+        uint256 _choiceId, 
+        uint256 _weight, 
         uint256 _totalChoices, 
         bool _isBoostVote
     ) internal {
-        uint256 totalWeight = 0;
+        uint256 stakeWeight = 0;
 
-        for (uint256 i = 0; i < _choiceIds.length; i++) {
-            // Validate each choice for both regular and boost proposals
-            _validateVoteChoice(_proposalId, _choiceIds[i], _totalChoices, _isBoostVote);
+        // Validate each choice for both regular and boost proposals
+        _validateVoteChoice(_proposalId, _choiceId, _totalChoices, _isBoostVote);
 
-            uint256 weight = _weights[i];
-            // Prevent zero weight votes
-            if (weight <= 0) revert WrongValue();
-
-            // Update user votes for the selected option
-            userVotes[_proposalId][msg.sender][_choiceIds[i]] += weight;
-
-            // Update total votes for the selected option
-            optionVotes[_proposalId][_choiceIds[i]] += weight;
-
-            // Accumulate the total weight of the user's vote
-            totalWeight += weight;
-        }
+        // Prevent zero weight votes
+        if (_weight <= 0) revert WrongValue();
 
         // Ensure the user's total vote weight does not exceed their available veLrds balance
         uint256 availableVeLrds = IValidator(masterValidator).veLrdsBalance(msg.sender);
-        if ((totalWeight + userTotalVotes[msg.sender]) > availableVeLrds) revert ExceedsAvailableWeight();
+
+        // Accumulate the total weight of the user's vote
+        stakeWeight = availableVeLrds * 100 / _weight;  
+
+        if ((stakeWeight + userTotalVotes[msg.sender]) > availableVeLrds) revert ExceedsAvailableWeight();
+
+        // Update user votes for the selected option
+        userVotes[_proposalId][msg.sender][_choiceId] = _weight;
+
+        // Update total votes for the selected option
+        optionVotes[_proposalId][_choiceId] += _weight;
 
         // Update the user's total votes
-        userTotalVotes[msg.sender] += totalWeight;
+        userTotalVotes[msg.sender] += stakeWeight;
+
+        proposalTotalVotes[_proposalId] += _weight;
+        
+        proposalUserTotalVotes[_proposalId][msg.sender] = _weight;
          
         // Record the voter for the proposal
-        _recordVoter(_proposalId, msg.sender);
+        // _recordVoter(_proposalId, msg.sender);
 
-        emit Voted(msg.sender, _proposalId, _choiceIds, _weights);
-    }
+        // Record the player's vote
+        votedStatus[_proposalId][msg.sender] = true;
 
-    /**
-    * @dev Records the voter for a specific proposal.
-    * Checks if the voter has already voted and adds them to the list of voters if not.
-    * @param _proposalId The ID of the proposal the user is voting on.
-    * @param voter The address of the user who is voting.
-    */
-    function _recordVoter(uint256 _proposalId, address voter) internal {
-        bool alreadyVoted = false;
-        
-        // Check if the user has already voted
-        for (uint256 i = 0; i < proposalVoters[_proposalId].length; i++) {
-            if (proposalVoters[_proposalId][i] == voter) {
-                alreadyVoted = true;
-                break;
-            }
-        }
-        
-        // If the user hasn't voted yet, add their address to the list of voters
-        if (!alreadyVoted) {
-            proposalVoters[_proposalId].push(voter);
-        }
+        emit Voted(msg.sender, _proposalId, _choiceId, _weight);
     }
 
     /**
@@ -367,61 +350,40 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     }
 
     /**
-    * @dev Cancels a proposal by marking it as cancelled
-    * @param _proposalId The ID of the proposal to be cancelled
+    * @dev Cancels a proposal (either regular or boost proposal) by marking it as cancelled.
+    * This function checks if the proposal is a boost proposal using the `isBoostVote` mapping.
+    * @param _proposalId The ID of the proposal to be cancelled.
     */
     function cancelProposal(uint256 _proposalId) external onlyOwner {
-        Proposal storage proposal = proposals[_proposalId];
+        // Check if it is a boost proposal
+        if (isBoostVote[_proposalId]) {
+            // Handling for boost proposal
+            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
 
-        // Check if the proposal is in Pending status before proceeding
-        if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
+            // Ensure the proposal is still pending
+            if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
 
-        // Ensure that the proposal has no staked votes before canceling
-        bool hasStakedVotes = false;
+            // Ensure that the proposal has no staked votes before canceling
+            if (proposalTotalVotes[_proposalId] > 0) revert ProposalHasStakedVotes();
 
-        // Check if there are any votes in any of the options for the proposal
-        for (uint256 i = 0; i < proposal.totalChoices; i++) {
-            if (optionVotes[_proposalId][i] > 0) {
-                hasStakedVotes = true;
-                break;
-            }
+            // Mark the boost proposal as cancelled
+            boostProposal.status = FinalizationStatus.Cancelled;
+            emit BoostProposalCancelled(_proposalId);
+
+        } else {
+            // Handling for regular proposal
+            Proposal storage proposal = proposals[_proposalId];
+
+            // Check if the proposal is in Pending status before proceeding
+            if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
+
+            // Ensure that the proposal has no staked votes before canceling
+            if (proposalTotalVotes[_proposalId] > 0) revert ProposalHasStakedVotes();
+
+            // Mark the proposal as cancelled
+            proposal.status = FinalizationStatus.Cancelled;
+            emit ProposalCancelled(_proposalId);
         }
-
-        // If there are staked votes, revert with an error
-        if (hasStakedVotes) revert ProposalHasStakedVotes();
-
-        // Mark the proposal as cancelled
-        proposal.status = FinalizationStatus.Cancelled;
-        emit ProposalCancelled(_proposalId);
-    }
-
-    /**
-    * @dev Cancels a boost proposal by marking it as cancelled
-    * @param _proposalId The ID of the boost proposal to be cancelled
-    */
-    function cancelBoostProposal(uint256 _proposalId) external onlyOwner {
-        ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
-
-        // Ensure the proposal is still pending
-        if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
-
-        // Check if the boost proposal has votes before canceling
-        bool hasVotes = false;
-
-        // Loop through all possible choices to check if any of them have votes
-        for (uint256 i = 0; i < proposalValidatorCounts[_proposalId]; i++) {
-            if (optionVotes[_proposalId][i] > 0) {
-                hasVotes = true;
-                break;
-            }
-        }
-
-        // If there are votes, revert the cancellation
-        if (hasVotes) revert ProposalHasStakedVotes();
-
-        // Mark the boost proposal as cancelled
-        boostProposal.status = FinalizationStatus.Cancelled;
-        emit BoostProposalCancelled(_proposalId);
     }
 
     /**
@@ -447,7 +409,6 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     */
     function executeVoteRewardProposal(uint256 _proposalId) external onlyOwner {
 
-        uint256 totalVotes   = 0;  // Total votes cast in the proposal
         bool isBoostProposal = isBoostVote[_proposalId];  // Check if the proposal is a boost proposal
         uint256 totalReward  = voteReward[_proposalId];  // Total reward to distribute
 
@@ -464,58 +425,17 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             // For boost proposals, retrieve the reward details and check voting period
             ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
             _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
-
-            // Sum the votes from all validators for the boost proposal
-            for (uint256 i = 0; i < proposalValidatorCounts[_proposalId]; i++) {
-                totalVotes += optionVotes[_proposalId][i];
-            }
-
         } else {
             // For regular proposals, retrieve the reward details and check voting period
             Proposal storage proposal = proposals[_proposalId];
             _checkVotingPeriod(proposal.startTime, proposal.endTime);
-
-            // Sum the votes from all choices for the regular proposal
-            for (uint256 i = 0; i < proposal.totalChoices; i++) {
-                totalVotes += optionVotes[_proposalId][i];
-            }
-        }
-
-        // Ensure there were votes cast in the proposal
-        if (totalVotes <= 0) revert ZeroAmount();
-
-        // Retrieve the list of voters for the proposal
-        address[] memory voters = proposalVoters[_proposalId];
-
-        // Loop through each voter to calculate their reward
-        for (uint256 i = 0; i < voters.length; i++) {
-            address voter = voters[i];
-            uint256 totalVoterWeight = 0;
-
-            // Accumulate the voter's total weight across all options/validators
-            if (isBoostProposal) {
-                // For boost proposals, sum the user's votes across all validators
-                for (uint256 j = 0; j < proposalValidatorCounts[_proposalId]; j++) {
-                    totalVoterWeight += userVotes[_proposalId][voter][j];
-                }
-            } else {
-                // For regular proposals, sum the user's votes across all choices
-                for (uint256 j = 0; j < proposals[_proposalId].totalChoices; j++) {
-                    totalVoterWeight += userVotes[_proposalId][voter][j];
-                }
-            }
-
-            // Calculate the reward for the current voter based on their vote weight
-            uint256 rewardForVoter = (totalVoterWeight * totalReward) / totalVotes;
-
-            // Transfer the calculated reward to the voter
-            if (rewardForVoter > 0) {
-                pendingRewards[_proposalId][voter] += rewardForVoter;
-            }
         }
 
         // Update the proposal status to Executed
         proposals[_proposalId].status = FinalizationStatus.Executed;
+        
+        // Emit event for reward distribution execution
+        emit RewardDistributionExecuted(_proposalId, totalReward, block.timestamp);
     }
 
     /**
@@ -525,22 +445,34 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     * @param _proposalId The ID of the proposal for which the user wants to claim rewards.
     */
     function claimAndLock(uint256 _proposalId) external nonReentrant {
-        
-        if (proposals[_proposalId].status != FinalizationStatus.Executed) revert WrongStatus();
-        
-        // Check if the user has pending rewards for the proposal
-        uint256 rewardAmount = pendingRewards[_proposalId][msg.sender];
-        if (rewardAmount <= 0) revert  ZeroAmount();
 
-        // Transfer the reward amount from the bank to the masterValidator
+        // Ensure the proposal status is 'Executed' before claiming rewards
+        if (proposals[_proposalId].status != FinalizationStatus.Executed) revert WrongStatus();
+
+        // Ensure the user has voted on the proposal
+        if (votedStatus[_proposalId][msg.sender] == false) revert UserIsNotVoted();
+
+        // Check if the user has already claimed the reward for this proposal
+        if (hasClaimedReward[_proposalId][msg.sender]) revert RewardAlreadyClaimed();
+
+        uint256 rewardAmount = 0;
+
+        // Calculate the reward based on the user's voting weight
+        rewardAmount = proposalUserTotalVotes[_proposalId][msg.sender] * voteReward[_proposalId] / proposalTotalVotes[_proposalId];
+
+        // Check if the user has any pending rewards to claim
+        if (rewardAmount <= 0) revert ZeroAmount();
+
+        // Transfer the reward amount from the bank to the MasterValidator for staking
         IERC20(token).safeTransferFrom(bank, masterValidator, rewardAmount);
 
-        // Clear the pending rewards for the user in the proposal
-        pendingRewards[_proposalId][msg.sender] = 0;
-
-        // Interact with the MasterValidator or Validator contract to stake the rewards
+        // Stake the reward in the MasterValidator contract on behalf of the user
         IValidator(masterValidator).stakeFor(msg.sender, rewardAmount);
 
+        // Mark the user as having claimed the reward for this proposal
+        hasClaimedReward[_proposalId][msg.sender] = true;
+
+        // Emit an event to record the claim and stake action
         emit RewardsClaimedAndLocked(msg.sender, _proposalId, rewardAmount);
     }
 
