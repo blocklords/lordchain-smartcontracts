@@ -210,22 +210,22 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         uint256 availableVeLrds = IValidator(masterValidator).veLrdsBalance(msg.sender);
 
         // Accumulate the total weight of the user's vote
-        stakeWeight = availableVeLrds * 100 / _weight;  
+        stakeWeight = availableVeLrds * _weight / 100;  
 
         if ((stakeWeight + userTotalVotes[msg.sender]) > availableVeLrds) revert ExceedsAvailableWeight();
 
         // Update user votes for the selected option
-        userVotes[_proposalId][msg.sender][_choiceId] = _weight;
+        userVotes[_proposalId][msg.sender][_choiceId] = stakeWeight;
 
         // Update total votes for the selected option
-        optionVotes[_proposalId][_choiceId] += _weight;
+        optionVotes[_proposalId][_choiceId] += stakeWeight;
 
         // Update the user's total votes
         userTotalVotes[msg.sender] += stakeWeight;
 
-        proposalTotalVotes[_proposalId] += _weight;
+        proposalTotalVotes[_proposalId] += stakeWeight;
         
-        proposalUserTotalVotes[_proposalId][msg.sender] = _weight;
+        proposalUserTotalVotes[_proposalId][msg.sender] = stakeWeight;
          
         // Record the voter for the proposal
         // _recordVoter(_proposalId, msg.sender);
@@ -233,7 +233,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         // Record the player's vote
         votedStatus[_proposalId][msg.sender] = true;
 
-        emit Voted(msg.sender, _proposalId, _choiceId, _weight);
+        emit Voted(msg.sender, _proposalId, _choiceId, stakeWeight);
     }
 
     /**
