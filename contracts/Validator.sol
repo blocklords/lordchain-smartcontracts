@@ -58,10 +58,10 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public constant DEPOSIT_MAX_FEE = 100;          // The maximum deposit fee (1%)
     uint256 public constant CLAIM_MAX_FEE = 500;            // The maximum claim fee (5%)
     uint256 public constant WEEK = 7 days;                  // One week in seconds
-    // uint256 public constant MAX_LOCK = (209 * WEEK) - 1;    // Maximum lock duration (209 weeks - 1 second)
+    // uint256 public constant MAX_LOCK = (209 * WEEK) - 1; // Maximum lock duration (209 weeks - 1 second) --> main
     // uint256 public constant MIN_LOCK = WEEK;             // Minimum lock duration (520 seconds) --> main
-    uint256 public constant MAX_LOCK = 14560;    // Maximum lock duration (209 weeks - 1 second)
-    uint256 public constant MIN_LOCK = 520;                 // Minimum lock duration (520 seconds) -->test
+    uint256 public constant MAX_LOCK = 14560;               // Maximum lock duration (14560 seconds) -->test
+    uint256 public constant MIN_LOCK = 520;                 // Minimum lock duration (520 seconds) --> test
     uint256 public constant MULTIPLIER = 10**18;            // The precision factor for reward calculations
 
     bool public isClaimed;                                  // Flag to indicate whether the validator has been claimed
