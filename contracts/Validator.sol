@@ -290,11 +290,13 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Call _claim to distribute the rewards
         (uint256 userClaimAmount, uint256 feeAmount) = _claim(totalPending);
+
+        uint256 currentPeriod = getCurrentPeriod();
         
-        user.rewardDebt = (user.amount * rewardPeriods[currentRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
+        user.rewardDebt = (user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
         // Update the user's last updated reward period to the current period
-        user.lastUpdatedRewardPeriod = currentRewardPeriodIndex - 1;
+        user.lastUpdatedRewardPeriod = currentPeriod;
 
         emit Claim(msg.sender, userClaimAmount, feeAmount);
     }
