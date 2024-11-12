@@ -75,7 +75,7 @@ contract  ValidatorFactory is IValidatorFactory {
     /// @inheritdoc IValidatorFactory
     function subTotalStakedWallet() external {
         if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
-        if (totalStakedWallet < 0) revert NotEnoughWallet();
+        if (totalStakedWallet == 0) revert NotEnoughWallet();
         totalStakedWallet--;
     }
 
