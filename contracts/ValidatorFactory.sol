@@ -115,9 +115,11 @@ contract  ValidatorFactory is IValidatorFactory {
 
     /// @inheritdoc IValidatorFactory
     function createValidator(address _token, address _owner, uint256 _quality, address _verifier) external onlyAdmin returns (address validator) {
-        uint256 validatorId = allValidators.length;  // Use the length of allValidators array as the validatorId
-
-        bytes32 salt = keccak256(abi.encodePacked(_quality, _owner, validatorId)); // salt includes stable as well, 3 parameters
+        // Use the length of allValidators array as the validatorId
+        uint256 validatorId = allValidators.length; 
+         
+        // salt includes stable as well, 3 parameters
+        bytes32 salt = keccak256(abi.encodePacked(_quality, _owner, validatorId)); 
        
         validator = Clones.cloneDeterministic(implementation, salt);
         
