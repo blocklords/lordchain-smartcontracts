@@ -9,6 +9,7 @@ interface IValidatorFactory {
     error NotEnoughAmount();
     error NotEnoughWallet();
     error NotRegisteredValidator();
+    error InvalidTimePeriod();
     
     event ValidatorCreated(address indexed owner, address validator, uint256 validatorLength);
 

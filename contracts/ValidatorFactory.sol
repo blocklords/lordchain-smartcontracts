@@ -82,6 +82,7 @@ contract  ValidatorFactory is IValidatorFactory {
     /// @inheritdoc IValidatorFactory
     function addTotalValidators(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external {
         if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
+        if ((_endTime <= _startTime)) revert InvalidTimePeriod();
         totalValidators[validatorPeriodCount++] = ValidatorInfo(_startTime, _endTime, _totalReward);
     }
 
