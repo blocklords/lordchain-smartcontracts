@@ -178,7 +178,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
 
             // Common check for voting period
-            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
+            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime, boostProposal.status);
 
             _vote(_proposalId, _choiceId, _weight, proposalValidatorCounts[_proposalId], true);
         } else {
@@ -186,7 +186,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             Proposal storage proposal = proposals[_proposalId];
             
             // Common check for voting period
-            _checkVotingPeriod(proposal.startTime, proposal.endTime);
+            _checkVotingPeriod(proposal.startTime, proposal.endTime, proposal.status);
 
             _vote(_proposalId, _choiceId, _weight, proposal.totalChoices, false);
         }
@@ -359,11 +359,13 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
 
     /**
     * @dev Checks if the voting period is active
-    * @param startTime The start time of the voting period
-    * @param endTime The end time of the voting period
+    * @param _startTime The start time of the voting period
+    * @param _endTime The end time of the voting period
+    * @param _status The status of the voting period
     */
-    function _checkVotingPeriod(uint256 startTime, uint256 endTime) internal view {
-        if (block.timestamp < startTime || block.timestamp > endTime) revert VotingNotOpen();
+    function _checkVotingPeriod(uint256 _startTime, uint256 _endTime, FinalizationStatus _status) internal view {
+        if (block.timestamp < _startTime || block.timestamp > _endTime) revert VotingNotOpen();
+        if (_status != FinalizationStatus.Pending) revert WrongStatus();
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -389,8 +391,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             // For boost proposals, retrieve the reward details and check voting period
             ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
             // Check the proposal status
-            if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
-            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
+            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime, boostProposal.status);
 
             // Update the proposal status to Executed
             boostProposal.status = FinalizationStatus.Executed;
@@ -398,8 +399,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
             // For regular proposals, retrieve the reward details and check voting period
             Proposal storage proposal = proposals[_proposalId];
             // Check the proposal status
-            if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
-            _checkVotingPeriod(proposal.startTime, proposal.endTime);
+            _checkVotingPeriod(proposal.startTime, proposal.endTime, proposal.status);
             
             // Update the proposal status to Executed
             proposal.status = FinalizationStatus.Executed;
