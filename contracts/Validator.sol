@@ -109,19 +109,13 @@ contract Validator is IValidator, ReentrancyGuard {
 
     // Modifier to ensure only the owner can access the function
     modifier onlyOwner() {
-        if (msg.sender != address(admin)) revert NotOwner();
+        if (msg.sender != address(owner)) revert NotOwner();
         _;
     }
 
     // Modifier to ensure the contract is not paused
     modifier whenNotPaused() {
         if (isPaused) revert ContractPaused();
-        _;
-    }
-
-    // Modifier to ensure only the factory can access the function
-    modifier onlyFactory() {
-        if (msg.sender != factory) revert NotFactory();
         _;
     }
 
@@ -214,7 +208,7 @@ contract Validator is IValidator, ReentrancyGuard {
             lastRewardTime: _startTime
         });
         
-        IValidatorFactory(factory).AddTotalValidators(_startTime, _endTime, _totalReward);
+        IValidatorFactory(factory).addTotalValidators(_startTime, _endTime, _totalReward);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -229,7 +223,7 @@ contract Validator is IValidator, ReentrancyGuard {
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount > 0 || user.lockStartTime > 0) revert AllreadyLocked();
 
-        IValidatorFactory(factory).AddTotalStakedWallet();
+        IValidatorFactory(factory).addTotalStakedWallet();
 
         _deposit(_amount, _lockDuration, user);
     }
@@ -338,8 +332,8 @@ contract Validator is IValidator, ReentrancyGuard {
         delete userInfo[msg.sender];
 
         // Update the total staked amount and wallet count in the factory contract
-        IValidatorFactory(factory).SubTotalStakedAmount(user.amount);
-        IValidatorFactory(factory).SubTotalStakedWallet();
+        IValidatorFactory(factory).subTotalStakedAmount(user.amount);
+        IValidatorFactory(factory).subTotalStakedWallet();
 
         emit Withdraw(msg.sender, user.amount, userClaimAmount, feeAmount);
     }
@@ -501,7 +495,7 @@ contract Validator is IValidator, ReentrancyGuard {
             }
 
             // Update the total staked amount in the factory contract
-            IValidatorFactory(factory).AddTotalStakedAmount(amountAfterFee);
+            IValidatorFactory(factory).addTotalStakedAmount(amountAfterFee);
         }
 
         // If lock duration is provided but no amount is being deposited, just extend the lock duration
@@ -918,19 +912,18 @@ contract Validator is IValidator, ReentrancyGuard {
         governance = _governance;
     }
 
-    /*//////////////////////////////////////////////////////////////
-                               FACTORY
-    //////////////////////////////////////////////////////////////*/
-    
-    /// @notice Sets the paused state of the contract.
-    /// @dev This function allows the factory (only the factory can call it) to pause or unpause the contract.
-    ///      Pausing the contract might prevent certain operations or changes from occurring, providing a safety mechanism.
-    /// @param _state The new paused state: `true` to pause the contract, `false` to unpause it.
-    function setPauseState(bool _state) external onlyFactory {
-        // If the new state is the same as the current state, revert the transaction
-        if (isPaused == _state) revert StateUnchanged();
+    /**
+    * @dev Allows the contract admin to pause or unpause the contract.
+    * Only the admin can call this function to change the contract's paused status.
+    * If the contract is already in the desired state, it will revert with `TheSameValue` error.
+    *
+    * @param _paused A boolean value indicating whether to pause (true) or unpause (false) the contract.
+    */
+    function setPause(bool _paused) external onlyOwner {
+        // If the new paused status is the same as the current one, revert the transaction
+        if (_paused == isPaused) revert TheSameValue();
 
-        // Update the paused state based on the provided value
-        isPaused = _state;
+        // Update the paused status to the new value
+        isPaused = _paused;
     }
 }

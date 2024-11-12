@@ -19,15 +19,11 @@ contract  ValidatorFactory is IValidatorFactory {
     uint256 public validatorPeriodCount;
 
     address public immutable implementation;
-    address public pauser;
-    address public feeManager;
-    address public voter;
     address public admin;
 
     address[] public allValidators;
     
     mapping(address => bool) private _isValidator;
-    mapping(address => bool) public isPaused;
     mapping(uint256 => ValidatorInfo) public totalValidators;
     mapping(uint256 => uint256) public minAmountForQuality;
 
@@ -38,11 +34,7 @@ contract  ValidatorFactory is IValidatorFactory {
 
     constructor(address _implementation) {
         implementation = _implementation;
-        voter = msg.sender;
-        pauser = msg.sender;
-        feeManager = msg.sender;
         admin = msg.sender;
-        isPaused[_implementation] = false;
         
         minAmountForQuality[3] = 400;
         minAmountForQuality[4] = 1000;
@@ -62,33 +54,33 @@ contract  ValidatorFactory is IValidatorFactory {
     }
 
     /// @inheritdoc IValidatorFactory
-    function AddTotalStakedAmount(uint256 _amount) external {
+    function addTotalStakedAmount(uint256 _amount) external {
         if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         totalStakedAmount += _amount;
     }
 
     /// @inheritdoc IValidatorFactory
-    function SubTotalStakedAmount(uint256 _amount) external {
+    function subTotalStakedAmount(uint256 _amount) external {
         if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         if (totalStakedAmount < _amount) revert NotEnoughAmount();
         totalStakedAmount -= _amount;
     }
 
     /// @inheritdoc IValidatorFactory
-    function AddTotalStakedWallet() external {
+    function addTotalStakedWallet() external {
         if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         totalStakedWallet++;
     }
     
     /// @inheritdoc IValidatorFactory
-    function SubTotalStakedWallet() external {
+    function subTotalStakedWallet() external {
         if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         if (totalStakedWallet < 0) revert NotEnoughWallet();
         totalStakedWallet--;
     }
 
     /// @inheritdoc IValidatorFactory
-    function AddTotalValidators(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external {
+    function addTotalValidators(uint256 _startTime, uint256 _endTime, uint256 _totalReward) external {
         if (!_isValidator[msg.sender]) revert  NotRegisteredValidator();
         totalValidators[validatorPeriodCount++] = ValidatorInfo(_startTime, _endTime, _totalReward);
     }
@@ -114,36 +106,6 @@ contract  ValidatorFactory is IValidatorFactory {
     /// @inheritdoc IValidatorFactory
     function isValidatorl(address pool) external view returns (bool) {
         return _isValidator[pool];
-    }
-
-    /// @inheritdoc IValidatorFactory
-    function setVoter(address _voter) external {
-        if (msg.sender != voter) revert NotVoter();
-        voter = _voter;
-        emit SetVoter(_voter);
-    }
-
-    /// @inheritdoc IValidatorFactory
-    function setPauser(address _pauser) external {
-        if (msg.sender != pauser) revert NotPauser();
-        if (_pauser == address(0)) revert ZeroAddress();
-        pauser = _pauser;
-        emit SetPauser(_pauser);
-    }
-
-    /// @inheritdoc IValidatorFactory
-    function setPauseState(address _validator, bool _state) external {
-        if (msg.sender != pauser) revert NotPauser();
-        isPaused[_validator] = _state;
-        emit SetPauseState(_validator, _state);
-    }
-
-    /// @inheritdoc IValidatorFactory
-    function setFeeManager(address _feeManager) external {
-        if (msg.sender != feeManager) revert NotFeeManager();
-        if (_feeManager == address(0)) revert ZeroAddress();
-        feeManager = _feeManager;
-        emit SetFeeManager(_feeManager);
     }
 
     function setMinAmountForQuality(uint256 quality, uint256 amount) external onlyAdmin {
