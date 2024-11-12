@@ -415,24 +415,26 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         // Ensure that the reward amount is greater than 0
         if (totalReward <= 0) revert ZeroAmount();
 
-        // Check the proposal status
-        if (proposals[_proposalId].status != FinalizationStatus.Pending) {
-            revert("Proposal is not in Pending status");
-        }
-
         // Check if the proposal is a boost proposal
         if (isBoostProposal) {
             // For boost proposals, retrieve the reward details and check voting period
             ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
+            // Check the proposal status
+            if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
             _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
+
+            // Update the proposal status to Executed
+            boostProposal.status = FinalizationStatus.Executed;
         } else {
             // For regular proposals, retrieve the reward details and check voting period
             Proposal storage proposal = proposals[_proposalId];
+            // Check the proposal status
+            if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
             _checkVotingPeriod(proposal.startTime, proposal.endTime);
+            
+            // Update the proposal status to Executed
+            proposal.status = FinalizationStatus.Executed;
         }
-
-        // Update the proposal status to Executed
-        proposals[_proposalId].status = FinalizationStatus.Executed;
         
         // Emit event for reward distribution execution
         emit RewardDistributionExecuted(_proposalId, totalReward, block.timestamp);
