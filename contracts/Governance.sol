@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 import "./interfaces/IValidator.sol";
 import "./interfaces/IValidatorFactory.sol";
@@ -42,6 +42,8 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         Cancelled                       // Cancelled The proposal has been cancelled
     }
 
+    address public admin;                  // The address of the contract admin
+    address public newOwner;               // Stores the address of the nominated new owner
     uint256 public proposalCount;          // Counter for proposal IDs
     address public masterValidator;        // Address of the master validator contract
     address public factory;                // Address of the factory contract
@@ -63,6 +65,12 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     mapping(uint256 => mapping(address => uint256)) public proposalUserTotalVotes;          // Mpping records the individual vote count for each user on each proposal.
     mapping(uint256 => mapping(address => bool)) public hasClaimedReward;                   // Mapping stores whether a user has already claimed their reward for a given proposal.
 
+    // Modifier to ensure only the admin can access the function
+    modifier onlyAdmin() {
+        if (msg.sender != address(admin)) revert NotAdmin();
+        _;
+    }
+
     /**
      * @dev Constructor to initialize the Voter contract
      * @param _masterValidator The address of the master validator contract
@@ -71,9 +79,10 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
      */
     constructor(address _masterValidator, address _factory, address _bank, address _token) Ownable(msg.sender) {
         masterValidator = _masterValidator;
-        factory = _factory;
-        bank = _bank;
-        token = _token;
+        factory         = _factory;
+        bank            = _bank;
+        token           = _token;
+        admin           = msg.sender;
     }
 
     /**
@@ -83,7 +92,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
      * @param _metadataURI URI for additional metadata associated with the proposal
      * @param _totalChoices The number of available choices for the proposal
      */
-    function createPropose(uint256 _startTime, uint256 _endTime, string calldata _metadataURI, uint256 _totalChoices) external onlyOwner {
+    function createPropose(uint256 _startTime, uint256 _endTime, string calldata _metadataURI, uint256 _totalChoices) external onlyAdmin {
         if(_startTime >=_endTime || block.timestamp > _startTime) revert WrongTime();
         
         uint256 proposalId = proposalCount++;
@@ -116,7 +125,7 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         uint256 _boostReward,
         uint256 _boostStartTime,
         uint256 _boostEndTime
-    ) external onlyOwner {
+    ) external onlyAdmin {
         if (_startTime >= _endTime|| block.timestamp > _startTime) revert WrongTime();
         if (_endTime >= _boostStartTime) revert WrongTime();
         if (_boostStartTime >= _boostEndTime) revert WrongBoostTime();
@@ -181,6 +190,101 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
 
             _vote(_proposalId, _choiceId, _weight, proposal.totalChoices, false);
         }
+    }
+
+    /// @inheritdoc IGovernance
+    function resetVotes(address _user) external {
+        if (msg.sender != masterValidator) revert NotValidator();
+        userTotalVotes[_user] = 0;
+    }
+
+    /**
+    * @dev Retrieves the number of votes cast by a user for all available choices in a specific proposal.
+    * @param _proposalId The ID of the proposal being queried.
+    * @param _user The address of the user whose votes are being fetched.
+    * @return votes An array containing the number of votes the user has cast for each available choice in the proposal.
+    */
+    function getUserVotesForAllChoices(uint256 _proposalId,  address _user) external view returns (uint256[] memory) {
+        uint256 totalChoices = proposals[_proposalId].totalChoices;
+        uint256[] memory votes = new uint256[](totalChoices);
+
+        for (uint256 i = 0; i < totalChoices; i++) {
+            votes[i] = userVotes[_proposalId][_user][i];
+        }
+
+        return votes;
+    }
+
+    /**
+    * @dev Retrieves the total number of votes cast for each available choice in a specific proposal.
+    * @param _proposalId The ID of the proposal being queried.
+    * @return votes An array containing the total number of votes each choice has received in the proposal.
+    */
+    function getProposalOptionVotes(uint256 _proposalId) external view returns (uint256[] memory) {
+        uint256 totalChoices = proposals[_proposalId].totalChoices;
+        uint256[] memory votes = new uint256[](totalChoices);
+
+        for (uint256 i = 0; i < totalChoices; i++) {
+            votes[i] = optionVotes[_proposalId][i];
+        }
+
+        return votes;
+    }
+
+    /**
+    * @dev Allows users to claim their pending rewards for a specific proposal and automatically stake them in the MasterValidator contract.
+    * This function transfers the pending reward tokens from the bank to the user and then stakes the reward amount in the MasterValidator contract.
+    * After the reward is claimed and staked, the user's pending reward balance is cleared.
+    * @param _proposalId The ID of the proposal for which the user wants to claim rewards.
+    */
+    function claimAndLock(uint256 _proposalId) external nonReentrant {
+
+        // Ensure the proposal status is 'Executed' before claiming rewards
+        if (proposals[_proposalId].status != FinalizationStatus.Executed) revert WrongStatus();
+
+        // Ensure the user has voted on the proposal
+        if (votedStatus[_proposalId][msg.sender] == false) revert UserIsNotVoted();
+
+        // Check if the user has already claimed the reward for this proposal
+        if (hasClaimedReward[_proposalId][msg.sender]) revert RewardAlreadyClaimed();
+
+        uint256 rewardAmount = 0;
+
+        // Calculate the reward based on the user's voting weight
+        rewardAmount = proposalUserTotalVotes[_proposalId][msg.sender] * voteReward[_proposalId] / proposalTotalVotes[_proposalId];
+
+        // Check if the user has any pending rewards to claim
+        if (rewardAmount <= 0) revert ZeroAmount();
+
+        // Transfer the reward amount from the bank to the MasterValidator for staking
+        IERC20(token).safeTransferFrom(bank, masterValidator, rewardAmount);
+
+        // Stake the reward in the MasterValidator contract on behalf of the user
+        IValidator(masterValidator).stakeFor(msg.sender, rewardAmount);
+
+        // Mark the user as having claimed the reward for this proposal
+        hasClaimedReward[_proposalId][msg.sender] = true;
+
+        // Emit an event to record the claim and stake action
+        emit RewardsClaimedAndLocked(msg.sender, _proposalId, rewardAmount);
+    }
+
+    /**
+    * @dev Allows the nominated address to accept ownership of the contract.
+    * This function can only be called by the address that was nominated as the new owner 
+    * in the `nominateNewOwner` function.
+    * Upon success, the ownership of the contract is transferred to the nominated address.
+    * After the transfer, the nomination is cleared.
+    */
+    function acceptOwnership() external nonReentrant {
+        // Ensure that only the nominated address can accept ownership
+        if (msg.sender != newOwner)  revert notNominatedAddress();
+        
+        // Transfer ownership to the nominated address
+        transferOwnership(newOwner);
+        
+        // Reset the nominated address after transfer
+        newOwner = address(0);
     }
 
     /**
@@ -262,11 +366,106 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         if (block.timestamp < startTime || block.timestamp > endTime) revert VotingNotOpen();
     }
 
+    /*//////////////////////////////////////////////////////////////
+                               ADMIN
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+    * @dev Executes the reward distribution for a given proposal based on the vote weight.
+    * This function is called by the owner to calculate rewards for voters after the voting period ends.
+    * It no longer transfers the rewards immediately but records them for each voter.
+    * @param _proposalId The ID of the proposal whose vote rewards are being calculated.
+    */
+    function executeVoteRewardProposal(uint256 _proposalId) external onlyAdmin {
+
+        bool isBoostProposal = isBoostVote[_proposalId];  // Check if the proposal is a boost proposal
+        uint256 totalReward  = voteReward[_proposalId];  // Total reward to distribute
+
+        // Ensure that the reward amount is greater than 0
+        if (totalReward <= 0) revert ZeroAmount();
+
+        // Check if the proposal is a boost proposal
+        if (isBoostProposal) {
+            // For boost proposals, retrieve the reward details and check voting period
+            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
+            // Check the proposal status
+            if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
+            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
+
+            // Update the proposal status to Executed
+            boostProposal.status = FinalizationStatus.Executed;
+        } else {
+            // For regular proposals, retrieve the reward details and check voting period
+            Proposal storage proposal = proposals[_proposalId];
+            // Check the proposal status
+            if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
+            _checkVotingPeriod(proposal.startTime, proposal.endTime);
+            
+            // Update the proposal status to Executed
+            proposal.status = FinalizationStatus.Executed;
+        }
+        
+        // Emit event for reward distribution execution
+        emit RewardDistributionExecuted(_proposalId, totalReward, block.timestamp);
+    }
+
+    /**
+    * @dev Sets the reward token and reward amount for a given proposal.
+    * This function allows the contract owner to configure the reward settings for a specific proposal.
+    * @param _proposalId The ID of the proposal for which the reward is being set.
+    * @param _rewardAmount The total reward amount allocated for the proposal.
+    */
+    function setVoteReward(uint256 _proposalId, uint256 _rewardAmount) external onlyAdmin {
+        
+        // Check that the reward amount is greater than zero
+        if (_rewardAmount <= 0) revert WrongValue();
+
+        // Set the reward token address and reward amount for the proposal
+        voteReward[_proposalId] = _rewardAmount;
+    }
+
+    /**
+    * @dev Cancels a proposal (either regular or boost proposal) by marking it as cancelled.
+    * This function checks if the proposal is a boost proposal using the `isBoostVote` mapping.
+    * @param _proposalId The ID of the proposal to be cancelled.
+    */
+    function cancelProposal(uint256 _proposalId) external onlyAdmin {
+        // Check if it is a boost proposal
+        if (isBoostVote[_proposalId]) {
+            // Handling for boost proposal
+            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
+
+            // Ensure the proposal is still pending
+            if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
+
+            // Ensure that the proposal has no staked votes before canceling
+            if (proposalTotalVotes[_proposalId] > 0) revert ProposalHasStakedVotes();
+
+            // Mark the boost proposal as cancelled
+            boostProposal.status = FinalizationStatus.Cancelled;
+            emit BoostProposalCancelled(_proposalId);
+
+        } else {
+            // Handling for regular proposal
+            Proposal storage proposal = proposals[_proposalId];
+
+            // Check if the proposal is in Pending status before proceeding
+            if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
+
+            // Ensure that the proposal has no staked votes before canceling
+            if (proposalTotalVotes[_proposalId] > 0) revert ProposalHasStakedVotes();
+
+            // Mark the proposal as cancelled
+            proposal.status = FinalizationStatus.Cancelled;
+            emit ProposalCancelled(_proposalId);
+        }
+    }
+
     /**
      * @dev Distributes the boost rewards to the validators based on their votes
      * @param proposalId The ID of the boost proposal
      */
-    function addBoostReward(uint256 proposalId) external onlyOwner {
+    function addBoostReward(uint256 proposalId) external onlyAdmin {
         ValidatorBoostProposal storage boostProposal = boostProposals[proposalId];
 
         // Check if the current time is within the reward distribution period
@@ -310,172 +509,31 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
         emit BoostRewardDistributed(proposalId, totalBoostReward);
     }
 
-    /// @inheritdoc IGovernance
-    function resetVotes(address _user) external {
-        if (msg.sender != masterValidator) revert NotValidator();
-        userTotalVotes[_user] = 0;
+    /*//////////////////////////////////////////////////////////////
+                               OWNER
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+    * @dev Allows the current owner to nominate a new owner for the contract.
+    * This function sets the nominated address that will be allowed to accept ownership in a separate step.
+    * Only the current owner (i.e., the address with the Owner role) can call this function.
+    * 
+    * @param _newOwner The address of the new owner to be nominated.
+    * This nominated address will be able to call `acceptOwnership` to confirm the ownership transfer.
+    */
+    function transferOwnership(address _newOwner) public override  onlyOwner {
+        if (_newOwner == address(0)) revert ZeroAddress();
+        newOwner = _newOwner;
     }
 
     /**
-    * @dev Retrieves the number of votes cast by a user for all available choices in a specific proposal.
-    * @param _proposalId The ID of the proposal being queried.
-    * @param _user The address of the user whose votes are being fetched.
-    * @return votes An array containing the number of votes the user has cast for each available choice in the proposal.
+    * @dev Sets the address of the new admin.
+    * This function can only be called by the current owner of the contract.
+    * Once executed, the specified address will be granted admin privileges.
+    * 
+    * @param _newAdmin The address of the new admin. The provided address will be set as the admin of the contract.
     */
-    function getUserVotesForAllChoices(uint256 _proposalId,  address _user) external view returns (uint256[] memory) {
-        uint256 totalChoices = proposals[_proposalId].totalChoices;
-        uint256[] memory votes = new uint256[](totalChoices);
-
-        for (uint256 i = 0; i < totalChoices; i++) {
-            votes[i] = userVotes[_proposalId][_user][i];
-        }
-
-        return votes;
+    function setAdmin(address _newAdmin) external onlyOwner {
+        admin = _newAdmin;
     }
-
-    /**
-    * @dev Retrieves the total number of votes cast for each available choice in a specific proposal.
-    * @param _proposalId The ID of the proposal being queried.
-    * @return votes An array containing the total number of votes each choice has received in the proposal.
-    */
-    function getProposalOptionVotes(uint256 _proposalId) external view returns (uint256[] memory) {
-        uint256 totalChoices = proposals[_proposalId].totalChoices;
-        uint256[] memory votes = new uint256[](totalChoices);
-
-        for (uint256 i = 0; i < totalChoices; i++) {
-            votes[i] = optionVotes[_proposalId][i];
-        }
-
-        return votes;
-    }
-
-    /**
-    * @dev Cancels a proposal (either regular or boost proposal) by marking it as cancelled.
-    * This function checks if the proposal is a boost proposal using the `isBoostVote` mapping.
-    * @param _proposalId The ID of the proposal to be cancelled.
-    */
-    function cancelProposal(uint256 _proposalId) external onlyOwner {
-        // Check if it is a boost proposal
-        if (isBoostVote[_proposalId]) {
-            // Handling for boost proposal
-            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
-
-            // Ensure the proposal is still pending
-            if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
-
-            // Ensure that the proposal has no staked votes before canceling
-            if (proposalTotalVotes[_proposalId] > 0) revert ProposalHasStakedVotes();
-
-            // Mark the boost proposal as cancelled
-            boostProposal.status = FinalizationStatus.Cancelled;
-            emit BoostProposalCancelled(_proposalId);
-
-        } else {
-            // Handling for regular proposal
-            Proposal storage proposal = proposals[_proposalId];
-
-            // Check if the proposal is in Pending status before proceeding
-            if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
-
-            // Ensure that the proposal has no staked votes before canceling
-            if (proposalTotalVotes[_proposalId] > 0) revert ProposalHasStakedVotes();
-
-            // Mark the proposal as cancelled
-            proposal.status = FinalizationStatus.Cancelled;
-            emit ProposalCancelled(_proposalId);
-        }
-    }
-
-    /**
-    * @dev Sets the reward token and reward amount for a given proposal.
-    * This function allows the contract owner to configure the reward settings for a specific proposal.
-    * @param _proposalId The ID of the proposal for which the reward is being set.
-    * @param _rewardAmount The total reward amount allocated for the proposal.
-    */
-    function setVoteReward(uint256 _proposalId, uint256 _rewardAmount) external onlyOwner {
-        
-        // Check that the reward amount is greater than zero
-        if (_rewardAmount <= 0) revert WrongValue();
-
-        // Set the reward token address and reward amount for the proposal
-        voteReward[_proposalId] = _rewardAmount;
-    }
-
-    /**
-    * @dev Executes the reward distribution for a given proposal based on the vote weight.
-    * This function is called by the owner to calculate rewards for voters after the voting period ends.
-    * It no longer transfers the rewards immediately but records them for each voter.
-    * @param _proposalId The ID of the proposal whose vote rewards are being calculated.
-    */
-    function executeVoteRewardProposal(uint256 _proposalId) external onlyOwner {
-
-        bool isBoostProposal = isBoostVote[_proposalId];  // Check if the proposal is a boost proposal
-        uint256 totalReward  = voteReward[_proposalId];  // Total reward to distribute
-
-        // Ensure that the reward amount is greater than 0
-        if (totalReward <= 0) revert ZeroAmount();
-
-        // Check if the proposal is a boost proposal
-        if (isBoostProposal) {
-            // For boost proposals, retrieve the reward details and check voting period
-            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
-            // Check the proposal status
-            if (boostProposal.status != FinalizationStatus.Pending) revert WrongStatus();
-            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime);
-
-            // Update the proposal status to Executed
-            boostProposal.status = FinalizationStatus.Executed;
-        } else {
-            // For regular proposals, retrieve the reward details and check voting period
-            Proposal storage proposal = proposals[_proposalId];
-            // Check the proposal status
-            if (proposal.status != FinalizationStatus.Pending) revert WrongStatus();
-            _checkVotingPeriod(proposal.startTime, proposal.endTime);
-            
-            // Update the proposal status to Executed
-            proposal.status = FinalizationStatus.Executed;
-        }
-        
-        // Emit event for reward distribution execution
-        emit RewardDistributionExecuted(_proposalId, totalReward, block.timestamp);
-    }
-
-    /**
-    * @dev Allows users to claim their pending rewards for a specific proposal and automatically stake them in the MasterValidator contract.
-    * This function transfers the pending reward tokens from the bank to the user and then stakes the reward amount in the MasterValidator contract.
-    * After the reward is claimed and staked, the user's pending reward balance is cleared.
-    * @param _proposalId The ID of the proposal for which the user wants to claim rewards.
-    */
-    function claimAndLock(uint256 _proposalId) external nonReentrant {
-
-        // Ensure the proposal status is 'Executed' before claiming rewards
-        if (proposals[_proposalId].status != FinalizationStatus.Executed) revert WrongStatus();
-
-        // Ensure the user has voted on the proposal
-        if (votedStatus[_proposalId][msg.sender] == false) revert UserIsNotVoted();
-
-        // Check if the user has already claimed the reward for this proposal
-        if (hasClaimedReward[_proposalId][msg.sender]) revert RewardAlreadyClaimed();
-
-        uint256 rewardAmount = 0;
-
-        // Calculate the reward based on the user's voting weight
-        rewardAmount = proposalUserTotalVotes[_proposalId][msg.sender] * voteReward[_proposalId] / proposalTotalVotes[_proposalId];
-
-        // Check if the user has any pending rewards to claim
-        if (rewardAmount <= 0) revert ZeroAmount();
-
-        // Transfer the reward amount from the bank to the MasterValidator for staking
-        IERC20(token).safeTransferFrom(bank, masterValidator, rewardAmount);
-
-        // Stake the reward in the MasterValidator contract on behalf of the user
-        IValidator(masterValidator).stakeFor(msg.sender, rewardAmount);
-
-        // Mark the user as having claimed the reward for this proposal
-        hasClaimedReward[_proposalId][msg.sender] = true;
-
-        // Emit an event to record the claim and stake action
-        emit RewardsClaimedAndLocked(msg.sender, _proposalId, rewardAmount);
-    }
-
 }
