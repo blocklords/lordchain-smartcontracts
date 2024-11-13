@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import "./interfaces/IValidator.sol";
 import "./interfaces/IValidatorFactory.sol";
@@ -15,7 +15,7 @@ import "./interfaces/IGovernance.sol";
  * voting with veLrds balance, and distributing rewards to validators for specific boost proposals.
  * It also includes functionality to reset votes and manage vote rewards.
  */
-contract Governance is IGovernance, Ownable, ReentrancyGuard {
+contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     struct Proposal {
@@ -43,7 +43,6 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     }
 
     address public admin;                  // The address of the contract admin
-    address public newOwner;               // Stores the address of the nominated new owner
     uint256 public proposalCount;          // Counter for proposal IDs
     address public masterValidator;        // Address of the master validator contract
     address public factory;                // Address of the factory contract
@@ -270,21 +269,13 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     }
 
     /**
-    * @dev Allows the nominated address to accept ownership of the contract.
-    * This function can only be called by the address that was nominated as the new owner 
-    * in the `nominateNewOwner` function.
-    * Upon success, the ownership of the contract is transferred to the nominated address.
-    * After the transfer, the nomination is cleared.
+    * @dev Allows the nominated address to accept ownership transfer.
+    * This function overrides the `acceptOwnership` function from the parent contract 
+    * to call the parent contract's implementation of accepting ownership.
+    * The nominated address must call this function to complete the ownership transfer.
     */
-    function acceptOwnership() external nonReentrant {
-        // Ensure that only the nominated address can accept ownership
-        if (msg.sender != newOwner)  revert notNominatedAddress();
-        
-        // Transfer ownership to the nominated address
-        transferOwnership(newOwner);
-        
-        // Reset the nominated address after transfer
-        newOwner = address(0);
+    function acceptOwnership() public override {
+        super.acceptOwnership();
     }
 
     /**
@@ -512,18 +503,16 @@ contract Governance is IGovernance, Ownable, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                OWNER
     //////////////////////////////////////////////////////////////*/
-
     /**
-    * @dev Allows the current owner to nominate a new owner for the contract.
-    * This function sets the nominated address that will be allowed to accept ownership in a separate step.
-    * Only the current owner (i.e., the address with the Owner role) can call this function.
-    * 
-    * @param _newOwner The address of the new owner to be nominated.
-    * This nominated address will be able to call `acceptOwnership` to confirm the ownership transfer.
+    * @dev Transfers ownership of the contract to a new account (`_newOwner`).
+    * This function overrides the `transferOwnership` function from the parent contract 
+    * to call the parent contract's implementation of ownership transfer.
+    * Only the current owner can call this function.
+    *
+    * @param _newOwner The address to transfer ownership to.
     */
-    function transferOwnership(address _newOwner) public override  onlyOwner {
-        if (_newOwner == address(0)) revert ZeroAddress();
-        newOwner = _newOwner;
+    function transferOwnership(address _newOwner) public override onlyOwner {
+        super.transferOwnership(_newOwner);
     }
 
     /**
