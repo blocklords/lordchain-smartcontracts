@@ -35,11 +35,12 @@ interface IValidator {
     error ContractPaused();
     error StateUnchanged();
     error InvalidBoostReward();
+    error NoReward();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
     event Claim( address indexed sender, uint256 userClaimAmount, uint256 feeAmount);
-    event Withdraw( address indexed sender, uint256 amount, uint256 userClaimAmount, uint256 feeAmount);
+    event Withdraw( address indexed sender, uint256 amount);
     event SetAutoMax(address indexed sender, bool open);
     event PurchaseValidator(address indexed sender, uint256 NP);
     event SetDepositFee(address indexed sender, uint256 fee);
