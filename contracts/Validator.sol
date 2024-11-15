@@ -85,7 +85,7 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     address public factory;                                 // The address of the PoolFactory that created this contract
     // address private voter;                               // The address of the voter (for validation purposes)
-    address private governance;                             // The address of the governance (for validation purposes)
+    address public governance;                             // The address of the governance (for validation purposes)
     address public admin;                                   // The address of the contract admin
     address public owner;                                   // The address of the contract owner
     address public verifier;                                // The address of the verifier for signature verification
@@ -418,8 +418,9 @@ contract Validator is IValidator, ReentrancyGuard {
     // /// @param _userAddress The address of the user to query.
     // /// @return The amount of pending rewards for the user.
     function getUserPendingReward(address _userAddress) external view returns (uint256) {
+        uint256 currentPeriod = getCurrentPeriod();
         UserInfo storage user = userInfo[_userAddress];
-        // return _calculateTotalPending(user);
+        
         uint256 totalPending = 0;
 
         for (uint256 i = user.lastUpdatedRewardPeriod; i < currentRewardPeriodIndex; i++) {
@@ -432,6 +433,10 @@ contract Validator is IValidator, ReentrancyGuard {
             uint256 rewardDebt = 0;
             if(user.lastUpdatedRewardPeriod == i) {
                 rewardDebt = user.rewardDebt;
+
+                if(user.lockStartTime <= period.startTime && i < currentPeriod) {
+                    rewardDebt = 0;
+                }
             }
             
             uint256 multiplier = _getMultiplier(period.lastRewardTime, block.timestamp, period.endTime);
@@ -620,6 +625,8 @@ contract Validator is IValidator, ReentrancyGuard {
     // /// @param _user The UserInfo struct of the user.
     // /// @return totalPending The total amount of pending rewards for the user.
     function _calculateTotalPending(UserInfo storage _user) internal view returns (uint256) {
+        
+        uint256 currentPeriod = getCurrentPeriod();
         uint totalPending = 0;
 
         // Loop through each reward period from last updated period to the current
@@ -632,7 +639,12 @@ contract Validator is IValidator, ReentrancyGuard {
 
             uint256 rewardDebt = 0;
             if(_user.lastUpdatedRewardPeriod == i) {
+                
                 rewardDebt = _user.rewardDebt;
+
+                if(_user.lockStartTime <= period.startTime && i < currentPeriod) {
+                    rewardDebt = 0;
+                }
             }
             uint256 pending = (_user.amount *  period.accTokenPerShare) / PRECISION_FACTOR - rewardDebt;
 
