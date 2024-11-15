@@ -39,6 +39,7 @@ interface IValidator {
     error AlreadyPurchasedThisQuality();
     error InsufficientNPPoint();
     error InsufficientLockAmount();
+    error GreaterThanMaxTime();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);

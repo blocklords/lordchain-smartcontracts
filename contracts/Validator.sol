@@ -264,7 +264,7 @@ contract Validator is IValidator, ReentrancyGuard {
             newEndTime = user.lockEndTime + _lockDuration;
         }
 
-        if (newEndTime > block.timestamp + MAX_LOCK) revert("GreaterThanMaxTime");
+        if (newEndTime > block.timestamp + MAX_LOCK) revert GreaterThanMaxTime();
         
         // Reset votes associated with the user
         if (block.timestamp > user.lockEndTime && address(this) == masterValidator) {
@@ -282,7 +282,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Update global reward state and user-specific rewards
         _updateValidator();
-        // _updateUserRewards(user);
+        _updateUserDebt(user);
         _updateBoostReward();
 
         uint256 currentPeriod = getCurrentPeriod();
@@ -294,8 +294,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Call _claim to distribute the rewards
         _claim(totalPending);
-
-        user.rewardDebt = (user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
         // Update the user's last updated reward period
         user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive ? currentPeriod : (currentPeriod + 1 < currentRewardPeriodIndex ? currentPeriod + 1 : currentPeriod);
@@ -312,7 +310,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Update global reward state and user-specific rewards
         _updateValidator();
-        // _updateUserRewards(user);
+        _updateUserDebt(user);
         _updateBoostReward();
 
         if (IERC20(token).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
@@ -329,8 +327,6 @@ contract Validator is IValidator, ReentrancyGuard {
         IERC20(token).safeTransfer(msg.sender, user.amount);
 
         uint256 currentPeriod = getCurrentPeriod();
-
-        user.rewardDebt = (user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
         // Reset votes associated with the user
         if (address(this) == masterValidator) {
@@ -518,7 +514,7 @@ contract Validator is IValidator, ReentrancyGuard {
     function _deposit(uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
         // Update global reward state and user-specific rewards
         _updateValidator();
-        // _updateUserRewards(_user);
+        _updateUserDebt(_user);
         _updateBoostReward();
 
         uint256 currentPeriod = getCurrentPeriod();
@@ -553,8 +549,6 @@ contract Validator is IValidator, ReentrancyGuard {
             totalStaked  += amountAfterFee;
 
             _user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive ? currentPeriod : (currentPeriod + 1 < currentRewardPeriodIndex ? currentPeriod + 1 : currentPeriod);
-
-            _user.rewardDebt = (_user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
             // If a lock duration is provided, set the lock start and end times
             if (_lockDuration > 0) {
@@ -694,22 +688,24 @@ contract Validator is IValidator, ReentrancyGuard {
         }
     }
 
-    // /// @notice Updates the user's accumulated rewards across active reward periods.
-    // /// @param _user The user information struct to be updated.
-    // function _updateUserRewards(UserInfo storage _user) internal {
-    //     uint256 accumulatedRewards = _user.rewardDebt;
+    /// @notice Updates the user's accumulated rewards across active reward periods.
+    /// @param _user The user information struct to be updated.
+    function _updateUserDebt(UserInfo storage _user) internal {
+        uint256 totalDebt = 0;
 
-    //     // Loop through each reward period from the user's last updated period to the current
-    //     for (uint256 i = _user.lastUpdatedRewardPeriod; i < currentRewardPeriodIndex; i++) {
-    //         RewardPeriod memory period = rewardPeriods[i];
+        // Loop through each reward period from the user's last updated period to the current
+        for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
+            RewardPeriod storage period = rewardPeriods[i];
             
-    //         if (period.endTime <= block.timestamp) {
-    //             accumulatedRewards += (_user.amount * period.accTokenPerShare) / PRECISION_FACTOR;
-    //         }
-    //     }
+            if (block.timestamp < period.startTime) {
+                break;
+            }
 
-    //     _user.rewardDebt = accumulatedRewards;
-    // }
+            totalDebt += (_user.amount * period.accTokenPerShare) / PRECISION_FACTOR;
+        }
+
+        _user.rewardDebt = totalDebt;
+    }
 
     /// @notice Calculates the LRDS reward for a given reward period index.
     /// @dev This function calculates the reward based on the elapsed time in the reward period and applies the multiplier.
