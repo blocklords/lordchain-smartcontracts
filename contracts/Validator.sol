@@ -294,7 +294,7 @@ contract Validator is IValidator, ReentrancyGuard {
         user.rewardDebt = (user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
         // Update the user's last updated reward period
-        user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive == true ? currentPeriod : currentPeriod + 1;
+        user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive ? currentPeriod : (currentPeriod + 1 < currentRewardPeriodIndex ? currentPeriod + 1 : currentPeriod);
 
     }
 
@@ -343,7 +343,8 @@ contract Validator is IValidator, ReentrancyGuard {
         user.lockStartTime = 0;
         user.lockEndTime   = 0;
         user.autoMax       = false;
-        user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive == true ? currentPeriod : currentPeriod + 1; // Update the user's last updated reward period
+        user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive ? currentPeriod : (currentPeriod + 1 < currentRewardPeriodIndex ? currentPeriod + 1 : currentPeriod);
+
 
         emit Withdraw(msg.sender, user.amount);
     }
@@ -533,8 +534,9 @@ contract Validator is IValidator, ReentrancyGuard {
             // Update the user's staked amount
             _user.amount += amountAfterFee;
             totalStaked  += amountAfterFee;
-            
-            _user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive == true ? currentPeriod : currentPeriod + 1;
+
+            _user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive ? currentPeriod : (currentPeriod + 1 < currentRewardPeriodIndex ? currentPeriod + 1 : currentPeriod);
+
             _user.rewardDebt = (_user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
             // If a lock duration is provided, set the lock start and end times
@@ -575,15 +577,15 @@ contract Validator is IValidator, ReentrancyGuard {
         }
 
         // If no active reward period is found and the current time is within a gap, return the last active period
-        for (uint256 i = currentRewardPeriodIndex - 1; i >= 0; i--) {
-            RewardPeriod storage period = rewardPeriods[i];
+        for (int256 i = int256(currentRewardPeriodIndex) - 1; i >= 0; i--) {
+            RewardPeriod storage period = rewardPeriods[uint256(i)];
             if (block.timestamp >= period.startTime) {
-                return i;  // Return the last active period before the gap
+                return uint256(i);  // Return the last active period before the gap
             }
         }
 
         // If no active reward period is found, return the index of the latest reward period
-        return currentRewardPeriodIndex - 1;
+        return 0;
     }
 
     /// @notice Claims the pending rewards for a user and transfers the reward amount.
