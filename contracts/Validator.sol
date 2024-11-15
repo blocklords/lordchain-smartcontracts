@@ -101,6 +101,10 @@ contract Validator is IValidator, ReentrancyGuard {
     mapping(address => BoostInfo) public boostInfo;
     // Mapping to store the count of nodes based on their quality
     mapping(uint256 => uint256) public nodeCounts;
+    // Only one quality Validator can be purchased per player
+    mapping(address => mapping(uint256 => bool)) public havePurchased;
+    // The amount of Lock used by the player to purchase the Validator
+    mapping(address => uint256) public playerValidatorCosts;
 
     // Modifier to ensure only the admin can access the function
     modifier onlyAdmin() {
@@ -376,12 +380,14 @@ contract Validator is IValidator, ReentrancyGuard {
         if (_deadline < block.timestamp) revert SignatureExpired();
 
         // Ensure that the number of validators to be purchased is greater than 0
-        if (_np <= 0) revert InsufficientAmount();
+        if (_np <= 0) revert InsufficientNPPoint();
 
         if (_quality != quality) revert QualityWrong();
 
         // Ensure that the validator has not already been claimed
         if (isClaimed == true) revert ValidatorIsClaimed();
+
+        if (havePurchased[msg.sender][_quality]) revert AlreadyPurchasedThisQuality();
 
         // Retrieve the amount of tokens and the auto-max setting from the master validator contract
         (uint256 amount, bool isAutoMax) = IValidator(masterValidator).getAmountAndAutoMax(msg.sender);
@@ -391,7 +397,9 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Check that the user has staked enough tokens to meet the required minimum amount for the given quality
         uint256 requiredAmount = IValidatorFactory(factory).minAmountForQuality(quality);
-        if (amount < requiredAmount * MULTIPLIER) revert InsufficientAmount();
+        if (requiredAmount <= 0) revert ZeroAmount();
+
+        if (amount < (requiredAmount * MULTIPLIER + playerValidatorCosts[msg.sender])) revert InsufficientLockAmount();
 
         // Verify the signature by hashing the message and recovering the address
         {
@@ -409,6 +417,8 @@ contract Validator is IValidator, ReentrancyGuard {
         // Mark the validator as claimed and set the owner to the message sender
         isClaimed = true;
         owner = msg.sender;
+        havePurchased[msg.sender][_quality] = true;
+        playerValidatorCosts[msg.sender] += requiredAmount * MULTIPLIER;
 
         // Emit the PurchaseValidator event to notify that the purchase was successful
         emit PurchaseValidator(msg.sender, _np);
