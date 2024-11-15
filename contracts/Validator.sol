@@ -574,6 +574,14 @@ contract Validator is IValidator, ReentrancyGuard {
             }
         }
 
+        // If no active reward period is found and the current time is within a gap, return the last active period
+        for (uint256 i = currentRewardPeriodIndex - 1; i >= 0; i--) {
+            RewardPeriod storage period = rewardPeriods[i];
+            if (block.timestamp >= period.startTime) {
+                return i;  // Return the last active period before the gap
+            }
+        }
+
         // If no active reward period is found, return the index of the latest reward period
         return currentRewardPeriodIndex - 1;
     }
