@@ -583,26 +583,20 @@ contract Validator is IValidator, ReentrancyGuard {
             return 0;
         }
         
+        uint256 currentPeriod = 0;
+
         // Loop through all reward periods and check if the current time is within any of them
         for (uint256 i = 0; i < currentRewardPeriodIndex; i++) {
             RewardPeriod storage period = rewardPeriods[i];
             
             // If the current time is within the reward period's valid range (startTime to endTime)
             if (block.timestamp >= period.startTime && block.timestamp <= period.endTime) {
+                currentPeriod = i;
                 return i; // Return the index of the active period
             }
         }
 
-        // If no active reward period is found and the current time is within a gap, return the last active period
-        for (int256 i = int256(currentRewardPeriodIndex) - 1; i >= 0; i--) {
-            RewardPeriod storage period = rewardPeriods[uint256(i)];
-            if (block.timestamp >= period.startTime) {
-                return uint256(i);  // Return the last active period before the gap
-            }
-        }
-
-        // If no active reward period is found, return the index of the latest reward period
-        return 0;
+        return currentPeriod;
     }
 
     /// @notice Claims the pending rewards for a user and transfers the reward amount.
