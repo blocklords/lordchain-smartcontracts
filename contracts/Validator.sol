@@ -757,6 +757,9 @@ contract Validator is IValidator, ReentrancyGuard {
         UserInfo storage use = userInfo[_user];
         if (use.amount <= 0 ) revert NoLockCreated(); 
         use.amount += _amount;
+        
+        // Update the total staked amount in the factory contract
+        IValidatorFactory(factory).addTotalStakedAmount(_amount);
 
         emit StakeForUser(_user, _amount);
     }
