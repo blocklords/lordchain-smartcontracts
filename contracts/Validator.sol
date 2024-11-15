@@ -333,6 +333,10 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Update the global staking total
         totalStaked -= user.amount;
+        
+        // Update the total staked amount and wallet count in the factory contract
+        IValidatorFactory(factory).subTotalStakedAmount(user.amount);
+        IValidatorFactory(factory).subTotalStakedWallet();
 
         // reset the user's information from the contract
         user.amount        = 0;
@@ -341,9 +345,6 @@ contract Validator is IValidator, ReentrancyGuard {
         user.autoMax       = false;
         user.lastUpdatedRewardPeriod = currentPeriod; // Update the user's last updated reward period to the current period
 
-        // Update the total staked amount and wallet count in the factory contract
-        IValidatorFactory(factory).subTotalStakedAmount(user.amount);
-        IValidatorFactory(factory).subTotalStakedWallet();
 
         emit Withdraw(msg.sender, user.amount);
     }
