@@ -36,5 +36,6 @@ interface IGovernance {
 
 
     function resetVotes(address _user) external;
+    function isBoostVote(uint256) external view returns (bool);
 
 }

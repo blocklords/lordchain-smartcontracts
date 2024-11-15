@@ -51,9 +51,9 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 startTime;         // The start time of the reward period
         uint256 endTime;           // The end time of the reward period
         uint256 totalReward;       // The total reward amount for this period
-        uint256 claimedAmount;     // The total amount of reward claimed so far
         uint256 accTokenPerShare;  // Accumulated reward per share for calculating user entitlements
         uint256 lastUpdatedTime;   // The last update timestamp for this boost period
+        bool isActive;
     }
 
     uint256 public constant DEPOSIT_MAX_FEE = 100;          // The maximum deposit fee (1%)
@@ -283,7 +283,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Update global reward state and user-specific rewards
         _updateValidator();
         // _updateUserRewards(user);
-        // _updateBoostReward(currentBoostRewardPeriodIndex);
+        _updateBoostReward();
 
         uint256 currentPeriod = getCurrentPeriod();
 
@@ -313,7 +313,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Update global reward state and user-specific rewards
         _updateValidator();
         // _updateUserRewards(user);
-        // _updateBoostReward(currentBoostRewardPeriodIndex);
+        _updateBoostReward();
 
         if (IERC20(token).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
 
@@ -517,7 +517,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Update global reward state and user-specific rewards
         _updateValidator();
         // _updateUserRewards(_user);
-        // _updateBoostReward(currentBoostRewardPeriodIndex);
+        _updateBoostReward();
 
         uint256 currentPeriod = getCurrentPeriod();
 
@@ -800,9 +800,9 @@ contract Validator is IValidator, ReentrancyGuard {
             startTime: _startTime,
             endTime: _endTime,
             totalReward: _totalReward,
-            claimedAmount: 0,
             accTokenPerShare: 0,
-            lastUpdatedTime: 0
+            lastUpdatedTime: _startTime,
+            isActive: true
         });
 
         emit BoostRewardAdded(_startTime, _endTime, _totalReward);
@@ -817,101 +817,180 @@ contract Validator is IValidator, ReentrancyGuard {
         UserInfo storage user = userInfo[msg.sender];
         BoostInfo storage userBoost = boostInfo[msg.sender];
 
-        uint256 totalPending = 0;
-        // Iterate through all unclaimed boost reward periods
-        for (uint256 i = userBoost.lastClaimedBoostIndex; i < currentBoostRewardPeriodIndex; i++) {
-            uint256 pending = _calculateBoostPending(user, i);
+        uint256 totalBoostPending = _calculateBoostPending(user, userBoost);
 
-            // Get the remaining claimable amount for the boost reward period
-            BoostReward storage boost = boostRewards[i];
-            uint256 remainingReward = boost.totalReward - boost.claimedAmount;
-
-            // Ensure there is enough reward available to claim
-            if (pending > remainingReward) revert NotEnoughRewardToken();
-            totalPending += pending;
-            boost.claimedAmount += pending;  // Update the claimed amount for the boost period
-        }
-
-        if (totalPending <= 0) revert InvalidBoostReward();
+        if (totalBoostPending <= 0) revert InvalidBoostReward();
 
         // Transfer the total pending boost reward to the user
-        IERC20(token).transfer(msg.sender, totalPending);
+        IERC20(token).transfer(msg.sender, totalBoostPending);
 
         // Update the user's boostRewardDebt and lastClaimedBoostIndex
-        userBoost.boostRewardDebt = (user.amount * boostRewards[currentBoostRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
-        userBoost.lastClaimedBoostIndex = currentBoostRewardPeriodIndex - 1;
+        
+        uint256 currentBoost = _getCurrentBoost();
+        userBoost.boostRewardDebt = (user.amount * boostRewards[currentBoost].accTokenPerShare) / PRECISION_FACTOR;
+        userBoost.lastClaimedBoostIndex = rewardPeriods[currentBoost].isActive ? currentBoost : (currentBoost + 1 < currentBoostRewardPeriodIndex ? currentBoost + 1 : currentBoost);   
+        
+        // userBoost.boostRewardDebt = (user.amount * boostRewards[currentBoostRewardPeriodIndex - 1].accTokenPerShare) / PRECISION_FACTOR;
+        // userBoost.lastClaimedBoostIndex = currentBoostRewardPeriodIndex - 1;
 
-        emit BoostRewardClaimed(msg.sender, totalPending);
-    }
-
-     /**
-     * @dev Calculates the pending boost reward for a user in a specified boost period.
-     * @param _user The user's information.
-     * @param _boostIndex The index of the boost period for which to calculate pending rewards.
-     * @return The pending reward amount for the user in the specified boost period.
-     */
-    function _calculateBoostPending(UserInfo storage _user, uint256 _boostIndex) internal view returns (uint256) {
-        BoostReward memory boost = boostRewards[_boostIndex];
-        BoostInfo memory userBoost = boostInfo[msg.sender];
-
-        // If the user's staked amount is 0 or the current time is before the reward period start time, return 0 pending reward
-        if (_user.amount == 0 || block.timestamp < boost.startTime) {
-            return 0;
-        }
-
-        // Calculate pending rewards directly using the updated accTokenPerShare
-        uint256 pendingReward = (_user.amount * boost.accTokenPerShare) / PRECISION_FACTOR;
-
-        // Subtract the user's boostRewardDebt to get the actual pending reward for the period
-        return pendingReward - userBoost.boostRewardDebt;
+        emit BoostRewardClaimed(msg.sender, totalBoostPending);
     }
 
     /**
      * @dev Updates the boost reward state for a specific boost period.
      * Calculates and updates the accumulated rewards (accTokenPerShare) since the last update.
-     * @param _boostIndex The index of the boost period to update.
      */
-    function _updateBoostReward(uint256 _boostIndex) internal {
-        BoostReward storage boost = boostRewards[_boostIndex];
+    function _updateBoostReward() internal {
 
-        // Check if the boost period is active; return if it is not active or if no rewards are available
-        if (block.timestamp < boost.startTime || block.timestamp > boost.endTime || boost.totalReward == 0) {
-            return;
+        // Loop through all reward periods to update rewards for the active periods
+        for (uint256 i = 0; i < currentBoostRewardPeriodIndex; i++) {
+            BoostReward storage boost = boostRewards[i];
+
+            if(!IGovernance(governance).isBoostVote(i)) continue ;
+
+            // Check if the current time is within the valid time range of the reward period
+            if (block.timestamp >= boost.startTime) {
+                // If the current time is earlier than the last reward update time, skip this period
+                if (block.timestamp <= boost.lastUpdatedTime) {
+                    continue;
+                }
+
+                // Calculate the reward for the current period and update the accumulated rewards per share
+                if (boost.isActive == true) {
+                    
+                    if (totalStaked > 0) {
+                        uint256 boostReward = _calculateBoostReward(i);
+                        boost.accTokenPerShare += (boostReward * PRECISION_FACTOR) / totalStaked;
+                    }
+                    
+                    if (block.timestamp >= boost.endTime) {
+                        boost.isActive = false;
+                        boost.lastUpdatedTime = boost.endTime;
+                    } else {
+                        boost.lastUpdatedTime = block.timestamp;
+                    }
+                }
+            }
+        }
+    }
+
+     /**
+     * @dev Calculates the pending boost reward for a user in a specified boost period.
+     * @param _boostIndex The index of the boost period for which to calculate pending rewards.
+     * @return The pending reward amount for the user in the specified boost period.
+     */
+    function _calculateBoostReward(uint256 _boostIndex) internal view returns (uint256) {
+        BoostReward memory boost = boostRewards[_boostIndex];
+
+        // Calculate the reward per second for the boost reward period
+        uint256 boostRewardPerSecond = boost.totalReward / (boost.endTime - boost.startTime);
+
+        // Calculate the multiplier based on the elapsed time since the last reward time
+        uint256 multiplier = _getMultiplier(boost.lastUpdatedTime, block.timestamp, boost.endTime);
+
+        // Return the calculated reward, applying the multiplier to the reward per second
+        return multiplier * boostRewardPerSecond;
+    }
+
+    // /// @notice Calculates the total boost pending rewards for a user across all eligible reward periods.
+    // /// @param _user The UserInfo struct of the user.
+    // /// @param _userBoost The BoostInfo struct of the user.
+    // /// @return totalBoostPending The total amount of boost pending rewards for the user.
+    function _calculateBoostPending(UserInfo storage _user, BoostInfo storage _userBoost) internal view returns (uint256) {
+        uint256 currentBoost = _getCurrentBoost();
+        uint totalBoostPending = 0;
+
+        // Loop through each reward period from last updated period to the current
+        for (uint256 i = _userBoost.lastClaimedBoostIndex; i < currentBoostRewardPeriodIndex; i++) {
+            BoostReward memory boost = boostRewards[i];
+
+            if (_user.amount == 0 || block.timestamp < boost.startTime) {
+                continue;
+            }
+
+            uint256 rewardDebt = 0;
+            if(_userBoost.lastClaimedBoostIndex == i) {
+                    rewardDebt = _userBoost.boostRewardDebt;
+                if(_user.lockStartTime >= boost.startTime && i < currentBoost) {
+                    rewardDebt = 0;
+                }
+            }
+            uint256 pending = (_user.amount *  boost.accTokenPerShare) / PRECISION_FACTOR - rewardDebt;
+
+            totalBoostPending += pending;
         }
 
-        // Ensure the boost period has a valid time range and total reward greater than 0
-        if (block.timestamp > boost.startTime && boost.totalReward > 0) {
-            // Calculate reward per second
-            uint256 rewardPerSecond = boost.totalReward / (boost.endTime - boost.startTime);
+        return totalBoostPending;
+    }
 
-            // Use boost.lastUpdatedTime as the starting point for the multiplier
-            uint256 multiplier = _getMultiplier(boost.lastUpdatedTime, block.timestamp, boost.endTime);
 
-            // Update accTokenPerShare with the accumulated rewards
-            uint256 boostReward = multiplier * rewardPerSecond;
-            boost.accTokenPerShare += (boostReward * PRECISION_FACTOR) / totalStaked;
-
-            // Update lastUpdatedTime to the current timestamp
-            boost.lastUpdatedTime = block.timestamp;
+    function _getCurrentBoost() internal view returns(uint256) {
+        // If there are no reward periods, return 0
+        if (currentBoostRewardPeriodIndex == 0) {
+            return 0;
         }
+        
+        // Loop through all reward periods and check if the current time is within any of them
+        for (uint256 i = 0; i < currentBoostRewardPeriodIndex; i++) {
+            BoostReward memory boost = boostRewards[i];
+            
+            // If the current time is within the reward period's valid range (startTime to endTime)
+            if (block.timestamp >= boost.startTime && block.timestamp <= boost.endTime) {
+                return i; // Return the index of the active period
+            }
+        }
+
+        // If no active reward period is found and the current time is within a gap, return the last active period
+        for (int256 i = int256(currentBoostRewardPeriodIndex) - 1; i >= 0; i--) {
+            BoostReward storage boost = boostRewards[uint256(i)];
+            if (block.timestamp >= boost.startTime) {
+                return uint256(i);  // Return the last active period before the gap
+            }
+        }
+
+        // If no active reward period is found, return the index of the latest reward period
+        return 0;
     }
 
     /**
      * @dev Retrieves the total pending boost reward for a user across all unclaimed boost periods.
-     * @param userAddress The address of the user.
+     * @param _user The address of the user.
      * @return The total pending boost reward for the specified user.
      */
-    function getBoostReward(address userAddress) external view returns (uint256) {
-        UserInfo storage user = userInfo[userAddress];
-        BoostInfo memory userBoost = boostInfo[msg.sender];
-        uint256 totalPending = 0;
+    function getUserBoostReward(address _user) external view returns (uint256) {
+        uint256 currentBoost = _getCurrentBoost();
+        
+        UserInfo storage user = userInfo[_user];
+        BoostInfo storage userBoost = boostInfo[msg.sender];
+        
+        uint256 totalBoostPending = 0;
 
-        // Iterate through all unclaimed boost reward periods
         for (uint256 i = userBoost.lastClaimedBoostIndex; i < currentBoostRewardPeriodIndex; i++) {
-            totalPending += _calculateBoostPending(user, i);
+            BoostReward memory boost = boostRewards[i];
+
+            if (user.amount == 0 || block.timestamp < boost.startTime) {
+                continue;
+            }
+
+            uint256 rewardDebt = 0;
+            if(userBoost.lastClaimedBoostIndex == i) {
+                    rewardDebt = userBoost.boostRewardDebt;
+                if(user.lockStartTime >= boost.startTime && i < currentBoost) {
+                    rewardDebt = 0;
+                }
+            }
+            
+            uint256 multiplier = _getMultiplier(boost.lastUpdatedTime, block.timestamp, boost.endTime);
+            uint256 rewardPerSecond = boost.totalReward / (boost.endTime - boost.startTime);
+            
+            uint256 boostReward = multiplier * rewardPerSecond;
+            uint256 accTokenPerShare = boost.accTokenPerShare + (boostReward * PRECISION_FACTOR) / totalStaked;
+            uint256 pending = (user.amount * accTokenPerShare) / PRECISION_FACTOR - rewardDebt;
+
+            totalBoostPending += pending;
         }
 
-        return totalPending;
+        return totalBoostPending;
     }
 
     /*//////////////////////////////////////////////////////////////

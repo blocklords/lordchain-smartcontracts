@@ -36,6 +36,9 @@ interface IValidator {
     error StateUnchanged();
     error InvalidBoostReward();
     error NoReward();
+    error AlreadyPurchasedThisQuality();
+    error InsufficientNPPoint();
+    error InsufficientLockAmount();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
