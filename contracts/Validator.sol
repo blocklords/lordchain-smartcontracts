@@ -293,8 +293,8 @@ contract Validator is IValidator, ReentrancyGuard {
 
         user.rewardDebt = (user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
-        // Update the user's last updated reward period to the current period
-        user.lastUpdatedRewardPeriod = currentPeriod;
+        // Update the user's last updated reward period
+        user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive == true ? currentPeriod : currentPeriod + 1;
 
     }
 
@@ -333,7 +333,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Update the global staking total
         totalStaked -= user.amount;
-        
+
         // Update the total staked amount and wallet count in the factory contract
         IValidatorFactory(factory).subTotalStakedAmount(user.amount);
         IValidatorFactory(factory).subTotalStakedWallet();
@@ -343,8 +343,7 @@ contract Validator is IValidator, ReentrancyGuard {
         user.lockStartTime = 0;
         user.lockEndTime   = 0;
         user.autoMax       = false;
-        user.lastUpdatedRewardPeriod = currentPeriod; // Update the user's last updated reward period to the current period
-
+        user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive == true ? currentPeriod : currentPeriod + 1; // Update the user's last updated reward period
 
         emit Withdraw(msg.sender, user.amount);
     }
@@ -535,6 +534,7 @@ contract Validator is IValidator, ReentrancyGuard {
             _user.amount += amountAfterFee;
             totalStaked  += amountAfterFee;
             
+            _user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive == true ? currentPeriod : currentPeriod + 1;
             _user.rewardDebt = (_user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
             // If a lock duration is provided, set the lock start and end times
