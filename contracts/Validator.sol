@@ -754,12 +754,14 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @inheritdoc IValidator
     function stakeFor(address _user, uint256 _amount) external onlyGovernance {
         // Increase the user's staked amount
-        UserInfo storage use = userInfo[_user];
-        if (use.amount <= 0 ) revert NoLockCreated(); 
-        use.amount += _amount;
+        UserInfo storage user = userInfo[_user];
+        if (user.amount <= 0 ) revert NoLockCreated(); 
         
-        // Update the total staked amount in the factory contract
-        IValidatorFactory(factory).addTotalStakedAmount(_amount);
+        if (user.autoMax == false) {
+            if (block.timestamp > user.lockEndTime) revert LockTimeExceeded();
+        }
+
+        _deposit(_amount, 0, user);
 
         emit StakeForUser(_user, _amount);
     }
