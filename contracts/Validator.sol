@@ -267,7 +267,7 @@ contract Validator is IValidator, ReentrancyGuard {
         if (newEndTime > block.timestamp + MAX_LOCK) revert("GreaterThanMaxTime");
         
         // Reset votes associated with the user
-        if (block.timestamp > user.lockEndTime) {
+        if (block.timestamp > user.lockEndTime && address(this) == masterValidator) {
             IGovernance(governance).resetVotes(msg.sender);
         }
 
@@ -333,7 +333,9 @@ contract Validator is IValidator, ReentrancyGuard {
         user.rewardDebt = (user.amount * rewardPeriods[currentPeriod].accTokenPerShare) / PRECISION_FACTOR;
 
         // Reset votes associated with the user
-        IGovernance(governance).resetVotes(msg.sender);
+        if (address(this) == masterValidator) {
+            IGovernance(governance).resetVotes(msg.sender);
+        }
 
         // Update the global staking total
         totalStaked -= user.amount;
