@@ -282,7 +282,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Update global reward state and user-specific rewards
         _updateValidator();
-        _updateUserDebt(user);
         _updateBoostReward();
 
         uint256 currentPeriod = getCurrentPeriod();
@@ -295,6 +294,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Call _claim to distribute the rewards
         _claim(totalPending);
 
+        _updateUserDebt(user);
         // Update the user's last updated reward period
         user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive ? currentPeriod : (currentPeriod + 1 < currentRewardPeriodIndex ? currentPeriod + 1 : currentPeriod);
 
@@ -310,7 +310,6 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Update global reward state and user-specific rewards
         _updateValidator();
-        _updateUserDebt(user);
         _updateBoostReward();
 
         if (IERC20(token).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
@@ -327,6 +326,8 @@ contract Validator is IValidator, ReentrancyGuard {
         IERC20(token).safeTransfer(msg.sender, user.amount);
 
         uint256 currentPeriod = getCurrentPeriod();
+
+        _updateUserDebt(user);
 
         // Reset votes associated with the user
         if (address(this) == masterValidator) {
@@ -514,7 +515,6 @@ contract Validator is IValidator, ReentrancyGuard {
     function _deposit(uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
         // Update global reward state and user-specific rewards
         _updateValidator();
-        _updateUserDebt(_user);
         _updateBoostReward();
 
         uint256 currentPeriod = getCurrentPeriod();
@@ -543,11 +543,14 @@ contract Validator is IValidator, ReentrancyGuard {
             if (fee > 0) {
                 IERC20(token).safeTransferFrom(msg.sender, validatorFees, fee);
             }
+            
 
             // Update the user's staked amount
             _user.amount += amountAfterFee;
             totalStaked  += amountAfterFee;
 
+            _updateUserDebt(_user);
+            
             _user.lastUpdatedRewardPeriod = rewardPeriods[currentPeriod].isActive ? currentPeriod : (currentPeriod + 1 < currentRewardPeriodIndex ? currentPeriod + 1 : currentPeriod);
 
             // If a lock duration is provided, set the lock start and end times
