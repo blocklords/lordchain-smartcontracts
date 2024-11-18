@@ -90,8 +90,6 @@ contract Validator is IValidator, ReentrancyGuard {
     mapping(address => UserInfo) public userInfo;
 
     mapping(address => uint256) public boostRewardDebt;
-    // Mapping to store the count of nodes based on their quality
-    mapping(uint256 => uint256) public nodeCounts;
     // Only one quality Validator can be purchased per player
     mapping(address => mapping(uint256 => bool)) public havePurchased;
     // The amount of Lock used by the player to purchase the Validator
@@ -130,7 +128,8 @@ contract Validator is IValidator, ReentrancyGuard {
         address _owner,
         uint256 _validatorId,
         uint256 _quality,
-        address _verifier
+        address _verifier,
+        uint256 _currentQualityCount
     ) external nonReentrant {
         if (factory != address(0)) revert FactoryAlreadySet();
         token = _token;
@@ -160,9 +159,8 @@ contract Validator is IValidator, ReentrancyGuard {
         } else {
             depositFee = 100; // 1%
             claimFee   = 500; // 5%
-            _name      = string(abi.encodePacked(nodeType, " ", Strings.toString(nodeCounts[_quality])));
+            _name      = string(abi.encodePacked(nodeType, " ", Strings.toString(_currentQualityCount)));
             isClaimed  = false;
-            nodeCounts[_quality]++;
         }
         verifier = _verifier;
         isPaused = false;

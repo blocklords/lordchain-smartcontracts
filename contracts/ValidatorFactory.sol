@@ -26,6 +26,8 @@ contract  ValidatorFactory is IValidatorFactory {
     mapping(address => bool) private _isValidator;
     mapping(uint256 => ValidatorInfo) public totalValidators;
     mapping(uint256 => uint256) public minAmountForQuality;
+    // Mapping to store the count of nodes based on their quality
+    mapping(uint256 => uint256) public nodeCounts;
 
     modifier onlyAdmin() {
         if (msg.sender != address(admin)) revert NotAdmin();
@@ -117,13 +119,19 @@ contract  ValidatorFactory is IValidatorFactory {
     function createValidator(address _token, address _owner, uint256 _quality, address _verifier) external onlyAdmin returns (address validator) {
         // Use the length of allValidators array as the validatorId
         uint256 validatorId = allValidators.length; 
+        
+        // Get the current counter value for the specified quality, starting from 1
+        uint256 currentQualityCount = nodeCounts[_quality] + 1;
+
+        // Update the counter
+        nodeCounts[_quality] = currentQualityCount;
          
         // salt includes stable as well, 3 parameters
         bytes32 salt = keccak256(abi.encodePacked(_quality, _owner, validatorId)); 
        
         validator = Clones.cloneDeterministic(implementation, salt);
         
-        IValidator(validator).initialize(_token, msg.sender, _owner, validatorId, _quality, _verifier);
+        IValidator(validator).initialize(_token, msg.sender, _owner, validatorId, _quality, _verifier, currentQualityCount);
     
         allValidators.push(validator);
 
