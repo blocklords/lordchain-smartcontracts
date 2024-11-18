@@ -119,6 +119,12 @@ contract Validator is IValidator, ReentrancyGuard {
         _;
     }
 
+    // Modifier to ensure only the valid validator can access the function
+    modifier onlyValidValidator() {
+        if (!IValidatorFactory(factory).isValidatorl(address(this))) revert NotValidValidator();
+        _;
+    }
+
     constructor() {}
 
     /// @inheritdoc IValidator
@@ -349,6 +355,8 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @dev This function ensures that only authorized users can purchase the validator and that they meet
     ///      the necessary requirements for purchasing.
     function purchaseValidator(uint256 _np, uint256 _quality, uint256 _deadline, uint8 _v,  bytes32 _r, bytes32 _s) external nonReentrant whenNotPaused {
+
+        IValidator _masterValidator = IValidator(masterValidator);
         // Check that the deadline has not passed, ensuring the signature is still valid
         if (_deadline < block.timestamp) revert SignatureExpired();
 
@@ -360,10 +368,10 @@ contract Validator is IValidator, ReentrancyGuard {
         // Ensure that the validator has not already been claimed
         if (isClaimed == true) revert ValidatorIsClaimed();
 
-        if (havePurchased[msg.sender][_quality]) revert AlreadyPurchasedThisQuality();
+        if (_masterValidator.havePurchased(msg.sender , _quality)) revert AlreadyPurchasedThisQuality();
 
         // Retrieve the amount of tokens and the auto-max setting from the master validator contract
-        (uint256 amount, bool isAutoMax) = IValidator(masterValidator).getAmountAndAutoMax(msg.sender);
+        (uint256 amount, bool isAutoMax) = _masterValidator.getAmountAndAutoMax(msg.sender);
 
         // Ensure that auto-max is enabled for the user (this flag must be true to proceed)
         if (isAutoMax == false) revert AutoMaxNotEnabled();
@@ -372,7 +380,7 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 requiredAmount = IValidatorFactory(factory).minAmountForQuality(quality);
         if (requiredAmount <= 0) revert ZeroAmount();
 
-        if (amount < (requiredAmount * MULTIPLIER + playerValidatorCosts[msg.sender])) revert InsufficientLockAmount();
+        if (amount < (requiredAmount * MULTIPLIER + _masterValidator.playerValidatorCosts(msg.sender))) revert InsufficientLockAmount();
 
         // Verify the signature by hashing the message and recovering the address
         {
@@ -390,18 +398,18 @@ contract Validator is IValidator, ReentrancyGuard {
         // Mark the validator as claimed and set the owner to the message sender
         isClaimed = true;
         owner = msg.sender;
-        havePurchased[msg.sender][_quality] = true;
-        playerValidatorCosts[msg.sender] += requiredAmount * MULTIPLIER;
+        _masterValidator._updateHavePurchased(msg.sender, _quality);
+        _masterValidator._updatePlayerValidatorCost(msg.sender, requiredAmount * MULTIPLIER);
 
         // Emit the PurchaseValidator event to notify that the purchase was successful
-        emit PurchaseValidator(msg.sender, _np);
+        emit PurchaseValidator(msg.sender, _np, _quality);
     }
 
     // /// @notice Gets the pending rewards for a user.
     // /// @param _userAddress The address of the user to query.
     // /// @return The amount of pending rewards for the user.
     function getUserPendingReward(address _userAddress) external view returns (uint256) {
-        // uint256 currentPeriod = getCurrentPeriod();
+        
         UserInfo storage user = userInfo[_userAddress];
         
         uint256 totalPending = 0;
@@ -688,6 +696,16 @@ contract Validator is IValidator, ReentrancyGuard {
         if (end <= start) return 0;
         // Ensures that the calculation does not exceed the reward period's end
         return (end < periodEnd ? end : periodEnd) - start;
+    }
+
+    /// @inheritdoc IValidator
+    function _updateHavePurchased(address _user, uint256 _quality) external onlyValidValidator {
+        havePurchased[_user][_quality] = true;
+    }
+
+    /// @inheritdoc IValidator
+    function _updatePlayerValidatorCost(address _user, uint256 _cost) external onlyValidValidator {
+        playerValidatorCosts[_user] += _cost;
     }
 
     /*//////////////////////////////////////////////////////////////

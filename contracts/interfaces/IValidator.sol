@@ -39,13 +39,14 @@ interface IValidator {
     error InsufficientNPPoint();
     error InsufficientLockAmount();
     error GreaterThanMaxTime();
+    error NotValidValidator();
 
     event ClaimFees(address indexed sender, uint256 amount);
     event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
     event Claim( address indexed sender, uint256 userClaimAmount, uint256 feeAmount);
     event Withdraw( address indexed sender, uint256 amount);
     event SetAutoMax(address indexed sender, bool open);
-    event PurchaseValidator(address indexed sender, uint256 NP);
+    event PurchaseValidator(address indexed sender, uint256 NP, uint256 quality);
     event SetDepositFee(address indexed sender, uint256 fee);
     event SetClaimFee(address indexed sender, uint256 fee);
     event BoostRewardAdded(uint256 startTime, uint256 endTime, uint256 totalReward);
@@ -64,8 +65,9 @@ interface IValidator {
     /// @param _validatorId The unique identifier for the validator. This will help distinguish different validators in the system.
     /// @param _quality The quality level of the validator (used for ranking or other features).
     /// @param _verifier The address of the verifier.
+    /// @param _currentQualityCount The address of the verifier.
     /// @dev This function can only be called once during the initialization phase to set up the validator contract with all necessary parameters.
-    function initialize(address _token, address _admin, address _owner, uint256 _validatorId, uint256 _quality, address _verifier) external;
+    function initialize(address _token, address _admin, address _owner, uint256 _validatorId, uint256 _quality, address _verifier, uint256 _currentQualityCount) external;
 
     /// @notice Creates a new lock for a specified amount of tokens with a defined duration.
     /// @param _amount The amount of tokens to lock for the specified duration.
@@ -122,13 +124,36 @@ interface IValidator {
     /// @dev This function allows the contract to assign a reward to a validator within a specific time window.
     function addBoostReward(uint256 _startTime, uint256 _endTime, uint256 _rewardAmount) external;
 
-    /**
-    * @dev Allows the Governance contract to stake tokens on behalf of a user.
-    * This function can only be called by the authorized Governance contract.
-    * It increases the user's staked balance by the specified amount.
-    * @param _user The address of the user for whom tokens are being staked.
-    * @param _amount The amount of tokens to stake for the user.
-    */
+    /// @dev Allows the Governance contract to stake tokens on behalf of a user.
+    /// This function can only be called by the authorized Governance contract.
+    /// It increases the user's staked balance by the specified amount.
+    /// @param _user The address of the user for whom tokens are being staked.
+    /// @param _amount The amount of tokens to stake for the user.
     function stakeFor(address _user, uint256 _amount) external;
+
+    /// @dev Checks whether a user has already purchased a validator of a specific quality.
+    /// @param _user The address of the user to check.
+    /// @param _quality The quality level of the validator.
+    /// @return A boolean value indicating whether the user has purchased a validator of the specified quality.
+    function havePurchased(address _user, uint256 _quality) external view returns (bool);
+
+    /// @dev Retrieves the total cost of validators associated with a specific user.
+    /// @param _user The address of the user to retrieve the total validator cost for.
+    /// @return The total cost of validators for the specified user.
+    function playerValidatorCosts(address _user) external view returns (uint256);
+
+    /// @dev Updates the purchase status for a specific user and validator quality.
+    ///      This function can only be called by a valid Validator contract,
+    ///      as ensured by the `onlyValidValidator` modifier.
+    /// @param _user The address of the user whose purchase status is being updated.
+    /// @param _quality The quality level of the validator being purchased.
+    function _updateHavePurchased(address _user, uint256 _quality) external;
+
+    /// @dev Updates the total cost of player validators for a specific user.
+    ///      This function can only be called by a valid Validator contract,
+    ///      as ensured by the `onlyValidValidator` modifier.
+    /// @param _user The address of the user whose total validator cost is being updated.
+    /// @param _cost The cost to be added to the user's total validator cost.
+    function _updatePlayerValidatorCost(address _user, uint256 _cost) external;
 
 }
