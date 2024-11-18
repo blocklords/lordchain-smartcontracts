@@ -298,11 +298,11 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         // Validate each choice for both regular and boost proposals
         _validateVoteChoice(_proposalId, _choiceId, _totalChoices, _isBoostVote);
 
-        // Prevent zero weight votes
-        if (_weight <= 0) revert WrongValue();
-
         // Ensure the user's total vote weight does not exceed their available veLrds balance
         uint256 availableVeLrds = IValidator(masterValidator).veLrdsBalance(msg.sender);
+        
+        // Prevent zero available VeLrds to votes
+        if (availableVeLrds <= 0) revert ZeroVelrds();
 
         // Accumulate the total weight of the user's vote
         stakeWeight = availableVeLrds * _weight / 100;  
