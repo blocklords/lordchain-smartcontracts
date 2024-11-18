@@ -382,7 +382,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
             // For boost proposals, retrieve the reward details and check voting period
             ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
             // Check the proposal status
-            _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime, boostProposal.status);
+            _checkExecuteReward(boostProposal.endTime, boostProposal.status);
 
             // Update the proposal status to Executed
             boostProposal.status = FinalizationStatus.Executed;
@@ -390,14 +390,15 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
             // For regular proposals, retrieve the reward details and check voting period
             Proposal storage proposal = proposals[_proposalId];
             // Check the proposal status
-            _checkVotingPeriod(proposal.startTime, proposal.endTime, proposal.status);
+            _checkExecuteReward(proposal.endTime, proposal.status);
             
             // Update the proposal status to Executed
             proposal.status = FinalizationStatus.Executed;
         }
         
         // Emit event for reward distribution execution
-        emit RewardDistributionExecuted(_proposalId, totalReward, block.timestamp);
+        emit 
+        RewardDistributionExecuted(_proposalId, totalReward, block.timestamp);
     }
 
     /**
@@ -465,7 +466,9 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         }
 
         uint256 totalBoostReward = boostProposal.boostReward;
-        uint256 totalVotes;
+        if (totalBoostReward <= 0) revert RewardIsZero();
+
+        uint256 totalVotes = 0;
 
         // Calculate the total votes for the proposal to determine the distribution proportion
         for (uint256 i = 0; i < proposalValidatorCounts[proposalId]; i++) {
@@ -498,6 +501,16 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         boostProposal.status = FinalizationStatus.Cancelled;
 
         emit BoostRewardDistributed(proposalId, totalBoostReward);
+    }
+    
+    /**
+    * @dev Checks if the reward execution conditions are met.
+    * @param _endTime The end time after which the reward can be executed.
+    * @param _status The current finalization status that must be checked.
+    */
+    function _checkExecuteReward(uint256 _endTime, FinalizationStatus _status) internal view {
+        if (block.timestamp <= _endTime) revert TimeIsNotUp();
+        if (_status != FinalizationStatus.Pending) revert WrongStatus();
     }
 
     /*//////////////////////////////////////////////////////////////
