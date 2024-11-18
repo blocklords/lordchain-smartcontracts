@@ -13,7 +13,6 @@ import "@openzeppelin/contracts/utils/Strings.sol";
 import "./interfaces/IValidatorFactory.sol";
 import "./interfaces/IValidator.sol";
 import "./interfaces/IGovernance.sol";
-import "./ValidatorFees.sol";
 
 /// @title Validator Contract
 /// @notice This contract allows users to stake tokens, manage reward periods, and claim rewards.
@@ -74,8 +73,6 @@ contract Validator is IValidator, ReentrancyGuard {
     uint256 public currentBoostRewardPeriodIndex;           // The index of the current active boost reward period
 
     address public token;                                   // The address of LRDS
-    /// @inheritdoc IValidator
-    address public validatorFees;                           // The address of the validator fees contract
     /// @inheritdoc IValidator
     address public factory;                                 // The address of the PoolFactory that created this contract
     // address private voter;                               // The address of the voter (for validation purposes)
@@ -142,8 +139,6 @@ contract Validator is IValidator, ReentrancyGuard {
         (admin, owner, validatorId, quality) = (_admin, _owner, _validatorId, _quality);
         if (_quality < 1 || _quality > 7) revert QualityWrong();
         PRECISION_FACTOR = 10 ** 12;
-
-        validatorFees = address(new ValidatorFees(token));
 
         string[7] memory nodeTypes = [
             "BLOCKLORDS Master",      // index 0, quality 1
@@ -272,7 +267,7 @@ contract Validator is IValidator, ReentrancyGuard {
     function claim() external nonReentrant whenNotPaused {
         UserInfo storage user = userInfo[msg.sender];
 
-        if (user.amount == 0) revert NoStakeFound();
+        if (user.amount == 0) revert NoLockCreated();
 
         // Update global reward state and user-specific rewards
         _updateValidator();
@@ -508,9 +503,9 @@ contract Validator is IValidator, ReentrancyGuard {
             // Transfer the staked amount to the contract
             IERC20(token).safeTransferFrom(msg.sender, address(this), amountAfterFee);
 
-            // If there is a fee, transfer it to the validatorFees address
+            // If there is a fee, transfer it to the owner address
             if (fee > 0) {
-                IERC20(token).safeTransferFrom(msg.sender, validatorFees, fee);
+                IERC20(token).safeTransferFrom(msg.sender, owner, fee);
             }
 
             // Update the user's staked amount
@@ -540,7 +535,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
     /// @notice Returns the index of the current active reward period based on the current time.
     /// @dev This function checks which reward period is currently active based on the block timestamp.
-    function getCurrentPeriod() public view returns(uint256) {
+    function getCurrentPeriod() external view returns(uint256) {
         // If there are no reward periods, return 0
         if (currentRewardPeriodIndex == 0) {
             return 0;
@@ -907,13 +902,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                OWNER
     //////////////////////////////////////////////////////////////*/
-
-    /// @inheritdoc IValidator
-    function claimFees() external nonReentrant whenNotPaused onlyOwner {
-        uint256 claimed = ValidatorFees(validatorFees).claimFeesFor(msg.sender);
-
-        emit ClaimFees(msg.sender, claimed);
-    }
 
     /// @notice Sets the deposit fee for the contract.
     /// @param _fee The new fee percentage to set.

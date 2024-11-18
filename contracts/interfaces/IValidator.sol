@@ -12,7 +12,6 @@ interface IValidator {
     error ZeroAmount();
     error AllreadyLocked();
     error NoLockCreated();
-    error NoStakeFound();
     error InsufficientAmount();
     error TimeNotUp();
     error NotEnoughStakeToken();
@@ -52,16 +51,6 @@ interface IValidator {
     event BoostRewardAdded(uint256 startTime, uint256 endTime, uint256 totalReward);
     event BoostRewardClaimed(address indexed sender, uint256 pendingBoostReward);
     event StakeForUser(address indexed sender, uint256 amount);
-
-    /// @notice Claims accumulated fees for the contract owner.
-    /// @dev Only the contract owner can call this function to claim accumulated fees. 
-    /// This function will transfer any accumulated fees to the owner's address.
-    function claimFees() external;
-
-    /// @notice Returns the address of the linked `validatorFees.sol` contract.
-    /// @dev This function returns the address of the `validatorFees.sol` contract, which handles validator fee-related functionalities.
-    /// @return address The address of the linked `validatorFees` contract.
-    function validatorFees() external view returns (address);
 
     /// @notice Returns the address of the PoolFactory that created this contract.
     /// @dev This function returns the address of the `PoolFactory` contract, which is responsible for deploying and managing the pool contract.
