@@ -277,13 +277,8 @@ contract Validator is IValidator, ReentrancyGuard {
         _updateValidator();
         _updateBoostReward();
 
-        // Calculate the total pending rewards
-        uint256 totalPending = _calculateTotalPending(user);
-
-        if (totalPending <= 0) revert NoReward();
-
         // Call _claim to distribute the rewards
-        _claim(totalPending);
+        _claim(user);
 
         _updateUserDebt(user);
     }
@@ -302,13 +297,8 @@ contract Validator is IValidator, ReentrancyGuard {
 
         if (IERC20(token).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
 
-        // Calculate the total pending rewards
-        uint256 totalPending = _calculateTotalPending(user);
-
-        if (totalPending > 0) {
-            // Call _claim to distribute the rewards
-            _claim(totalPending);
-        }
+        // Call _claim to distribute the rewards
+        _claim(user);
 
          // Transfer the user's staked amount back to them
         IERC20(token).safeTransfer(msg.sender, user.amount);
@@ -498,12 +488,9 @@ contract Validator is IValidator, ReentrancyGuard {
             // Ensure the amount after fee is positive
             if (amountAfterFee <= 0) revert InsufficientAmount();
 
+            // Call _claim to distribute the rewards
             if (_user.amount > 0) {
-                uint256 totalPending = _calculateTotalPending(_user);
-                if (totalPending > 0) {
-                    // Call _claim to distribute the rewards
-                    _claim(totalPending);
-                }
+                _claim(_user);
             }
             
             // Transfer the staked amount to the contract
@@ -567,19 +554,22 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @notice Claims the pending rewards for a user and transfers the reward amount.
     /// @dev This function calculates the pending rewards, applies the claim fee, and transfers the rewards to the user.
     ///      It also transfers the fee portion to the contract owner.
-    /// @param _pending The amount of pending rewards to be claimed.
+    /// @param _user The UserInfo struct of the user.
     /// @return userClaimAmount The amount of rewards the user can claim after the fee is deducted.
     /// @return feeAmount The amount of rewards deducted as a fee.
-    function _claim(uint256 _pending) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
+    function _claim(UserInfo storage _user) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
+        
+        uint256 totalPending = _calculateTotalPending(_user);
+        
         // If there are no pending rewards, return zero values
-        if (_pending == 0) return (0, 0);
+        if (totalPending <= 0) return (0, 0);
 
         // Ensure the contract has enough reward tokens to cover the pending claim
-        if (IERC20(token).balanceOf(address(this)) < _pending) revert NotEnoughRewardToken();
+        if (IERC20(token).balanceOf(address(this)) < totalPending) revert NotEnoughRewardToken();
 
         // Calculate the claim fee (claimFee is in basis points, e.g., 300 = 3%)
-        feeAmount = (_pending * claimFee) / 10000;
-        userClaimAmount = _pending - feeAmount;
+        feeAmount = (totalPending * claimFee) / 10000;
+        userClaimAmount = totalPending - feeAmount;
 
         // Transfer the fee to the contract owner
         if (feeAmount > 0) {
@@ -588,6 +578,12 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Transfer the remaining rewards to the user
         IERC20(token).safeTransfer(msg.sender, userClaimAmount);
+
+        uint256 totalBoostPending = _calculateBoostPending(_user);
+
+        if (totalBoostPending > 0) {
+            _claimBoostReward(totalBoostPending);
+        }
         
         emit Claim(msg.sender, userClaimAmount, feeAmount);
     }
@@ -609,8 +605,8 @@ contract Validator is IValidator, ReentrancyGuard {
             uint256 pending = (_user.amount *  period.accTokenPerShare) / PRECISION_FACTOR;
 
             totalPending += pending;
-
         }
+        
         return totalPending - _user.rewardDebt;
     }
 
@@ -774,16 +770,13 @@ contract Validator is IValidator, ReentrancyGuard {
      * @dev Allows users to claim accumulated boost rewards.
      * Claims all pending rewards from all unclaimed boost periods and transfers them to the user.
      * The function updates the claimed amount within each boost period and adjusts the user's reward debt.
+     * @param _totalBoostPending The amount of the boost reward period.
      */
-    function claimBoostReward() external nonReentrant whenNotPaused {
+    function _claimBoostReward(uint256 _totalBoostPending) internal nonReentrant whenNotPaused {
         UserInfo storage user = userInfo[msg.sender];
 
-        uint256 totalBoostPending = _calculateBoostPending(user);
-
-        if (totalBoostPending <= 0) revert InvalidBoostReward();
-
         // Transfer the total pending boost reward to the user
-        IERC20(token).transfer(msg.sender, totalBoostPending);
+        IERC20(token).transfer(msg.sender, _totalBoostPending);
         
         uint256 totalBoostDebt = 0;
 
@@ -802,7 +795,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         boostRewardDebt[msg.sender] = totalBoostDebt; 
 
-        emit BoostRewardClaimed(msg.sender, totalBoostPending);
+        emit BoostRewardClaimed(msg.sender, _totalBoostPending);
     }
 
     /**
@@ -874,9 +867,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
             if(!IGovernance(governance).isBoostVote(i)) continue ;
 
-            if (_user.amount == 0 || block.timestamp < boost.startTime) {
-                continue;
-            }
+            if (_user.amount == 0 || block.timestamp < boost.startTime) continue;
 
             totalBoostPending += (_user.amount *  boost.accTokenPerShare) / PRECISION_FACTOR;
         }
