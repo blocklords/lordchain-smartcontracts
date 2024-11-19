@@ -315,11 +315,9 @@ contract Validator is IValidator, ReentrancyGuard {
         IValidatorFactory(factory).subTotalStakedAmount(user.amount);
         IValidatorFactory(factory).subTotalStakedWallet();
 
-        delete userInfo[msg.sender];
-
-        _updateUserDebt(user);
-
         emit Withdraw(msg.sender, user.amount);
+        
+        delete userInfo[msg.sender];
     }
     
     /// @inheritdoc IValidator
