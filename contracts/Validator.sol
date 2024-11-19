@@ -278,7 +278,7 @@ contract Validator is IValidator, ReentrancyGuard {
         _updateBoostReward();
 
         // Call _claim to distribute the rewards
-        _claim(user);
+        _claim(msg.sender);
 
         _updateUserDebt(user);
     }
@@ -298,7 +298,7 @@ contract Validator is IValidator, ReentrancyGuard {
         if (IERC20(token).balanceOf(address(this)) < user.amount) revert NotEnoughRewardToken();
 
         // Call _claim to distribute the rewards
-        _claim(user);
+        _claim(msg.sender);
 
          // Transfer the user's staked amount back to them
         IERC20(token).safeTransfer(msg.sender, user.amount);
@@ -482,29 +482,35 @@ contract Validator is IValidator, ReentrancyGuard {
         _updateBoostReward();
 
         if (_amount > 0) {
-            // Calculate the deposit fee (depositFee is in basis points, e.g., 500 = 5%)
-            uint256 fee = (_amount * depositFee) / 10000;
 
-            if (fee > _amount) revert InsufficientAmount();
-            uint256 amountAfterFee = _amount - fee;
+            uint256 amountAfterFee = _amount;
+            uint256 fee = 0;
 
-            // Call _claim to distribute the rewards
-            if (user.amount > 0) {
-                _claim(user);
+            if (!_fromBoost) {
+                // Calculate the deposit fee (depositFee is in basis points, e.g., 500 = 5%)
+                fee = (_amount * depositFee) / 10000;
+
+                if (fee > _amount) revert InsufficientAmount();
+                amountAfterFee = _amount - fee;
             }
             
-            // Transfer the staked amount to the contract
-            if (_fromBoost ==  false) {
-                IERC20(token).safeTransferFrom(_userAddress, address(this), amountAfterFee);
+            // Call _claim to distribute the rewards
+            if (user.amount > 0) {
+                _claim(_userAddress);
             }
+                
+            if (!_fromBoost) {
+                // Transfer the staked amount to the contract
+                IERC20(token).safeTransferFrom(_userAddress, address(this), amountAfterFee);
 
-            // If there is a fee, transfer it to the owner address
-            if (fee > 0) {
-                IERC20(token).safeTransferFrom(_userAddress, owner, fee);
+                // If there is a fee, transfer it to the owner address
+                if (fee > 0) {
+                    IERC20(token).safeTransferFrom(_userAddress, owner, fee);
+                }
             }
 
             // Update the user's staked amount
-            user.amount += amountAfterFee;
+            user.amount  += amountAfterFee;
             totalStaked  += amountAfterFee;
 
             _updateUserDebt(user);
@@ -556,12 +562,13 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @notice Claims the pending rewards for a user and transfers the reward amount.
     /// @dev This function calculates the pending rewards, applies the claim fee, and transfers the rewards to the user.
     ///      It also transfers the fee portion to the contract owner.
-    /// @param _user The UserInfo struct of the user.
+    /// @param _userAddress The user wallet address.
     /// @return userClaimAmount The amount of rewards the user can claim after the fee is deducted.
     /// @return feeAmount The amount of rewards deducted as a fee.
-    function _claim(UserInfo storage _user) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
-        
-        uint256 totalPending = _calculateTotalPending(_user);
+    function _claim(address _userAddress) internal returns (uint256 userClaimAmount, uint256 feeAmount) {
+        UserInfo storage user = userInfo[_userAddress];
+
+        uint256 totalPending = _calculateTotalPending(user);
         
         // If there are no pending rewards, return zero values
         if (totalPending == 0) return (0, 0);
@@ -579,15 +586,15 @@ contract Validator is IValidator, ReentrancyGuard {
         }
 
         // Transfer the remaining rewards to the user
-        IERC20(token).safeTransfer(msg.sender, userClaimAmount);
+        IERC20(token).safeTransfer(_userAddress, userClaimAmount);
 
-        uint256 totalBoostPending = _calculateBoostPending(_user);
+        uint256 totalBoostPending = _calculateBoostPending(user);
 
         if (totalBoostPending > 0) {
             _claimBoostReward(totalBoostPending);
         }
         
-        emit Claim(msg.sender, userClaimAmount, feeAmount);
+        emit Claim(_userAddress, userClaimAmount, feeAmount);
     }
 
     // /// @notice Calculates the total pending rewards for a user across all eligible reward periods.
