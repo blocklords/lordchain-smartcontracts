@@ -8,7 +8,6 @@ interface IValidator {
     error NotFactory();
     error NotGovernance();
     error FeeTooHigh();
-    error WrongFee();
     error ZeroAmount();
     error AllreadyLocked();
     error NoLockCreated();

@@ -6,7 +6,6 @@ interface IGovernance {
     error InvalidWeight();
     error VotingNotOpen();
     error WrongTime();
-    error WrongValue();
     error NoVeLRDS();
     error NotValidator();
     error NoSuchOption();

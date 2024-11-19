@@ -184,7 +184,7 @@ contract Validator is IValidator, ReentrancyGuard {
     ) external nonReentrant onlyAdmin {
 
         // Check if total reward is greater than 0
-        if (_totalReward <= 0) revert InvalidTotalReward();
+        if (_totalReward == 0) revert InvalidTotalReward();
 
         // If it's the first reward period
         if (currentRewardPeriodIndex == 0) {
@@ -242,7 +242,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
     /// @inheritdoc IValidator
     function extendDuration(uint256 _lockDuration) external nonReentrant whenNotPaused {
-        if (_lockDuration <= 0 || _lockDuration > MAX_LOCK) revert WrongDuration();
+        if (_lockDuration == 0 || _lockDuration > MAX_LOCK) revert WrongDuration();
 
         UserInfo storage user = userInfo[msg.sender];
         if (user.amount == 0) revert NoLockCreated();
@@ -287,7 +287,7 @@ contract Validator is IValidator, ReentrancyGuard {
     function withdraw() external nonReentrant whenNotPaused {
         UserInfo storage user = userInfo[msg.sender];
 
-        if (user.amount <= 0) revert ZeroAmount();
+        if (user.amount == 0) revert ZeroAmount();
         if (block.timestamp < user.lockEndTime) revert TimeNotUp();
         if (user.autoMax == true) revert AutoMaxTime();
 
@@ -349,7 +349,7 @@ contract Validator is IValidator, ReentrancyGuard {
         if (_deadline < block.timestamp) revert SignatureExpired();
 
         // Ensure that the number of validators to be purchased is greater than 0
-        if (_np <= 0) revert InsufficientNPPoint();
+        if (_np == 0) revert InsufficientNPPoint();
 
         if (_quality != quality) revert QualityWrong();
 
@@ -366,7 +366,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // Check that the user has staked enough tokens to meet the required minimum amount for the given quality
         uint256 requiredAmount = IValidatorFactory(factory).minAmountForQuality(quality);
-        if (requiredAmount <= 0) revert ZeroAmount();
+        if (requiredAmount == 0) revert ZeroAmount();
 
         if (amount < (requiredAmount * MULTIPLIER + _masterValidator.playerValidatorCosts(msg.sender))) revert InsufficientLockAmount();
 
@@ -476,7 +476,7 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _fromBoost Whether the boost reward deposit.
     function _deposit(uint256 _amount, uint256 _lockDuration, address _userAddress, bool _fromBoost) internal {
         UserInfo storage user = userInfo[_userAddress];
-        
+
         // Update global reward state and user-specific rewards
         _updateValidator();
         _updateBoostReward();
@@ -484,10 +484,9 @@ contract Validator is IValidator, ReentrancyGuard {
         if (_amount > 0) {
             // Calculate the deposit fee (depositFee is in basis points, e.g., 500 = 5%)
             uint256 fee = (_amount * depositFee) / 10000;
-            uint256 amountAfterFee = _amount - fee;
 
-            // Ensure the amount after fee is positive
-            if (amountAfterFee <= 0) revert InsufficientAmount();
+            if (fee > _amount) revert InsufficientAmount();
+            uint256 amountAfterFee = _amount - fee;
 
             // Call _claim to distribute the rewards
             if (user.amount > 0) {
@@ -565,7 +564,7 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 totalPending = _calculateTotalPending(_user);
         
         // If there are no pending rewards, return zero values
-        if (totalPending <= 0) return (0, 0);
+        if (totalPending == 0) return (0, 0);
 
         // Ensure the contract has enough reward tokens to cover the pending claim
         if (IERC20(token).balanceOf(address(this)) < totalPending) revert NotEnoughRewardToken();
@@ -738,7 +737,7 @@ contract Validator is IValidator, ReentrancyGuard {
     function stakeFor(address _user, uint256 _amount, bool _fromBoost) external onlyGovernance {
         // Increase the user's staked amount
         UserInfo storage user = userInfo[_user];
-        if (user.amount <= 0 ) revert NoLockCreated(); 
+        if (user.amount == 0 ) revert NoLockCreated(); 
         
         if (user.autoMax == false) {
             if (block.timestamp > user.lockEndTime) revert LockTimeExceeded();
@@ -911,7 +910,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _fee The new fee percentage to set.
     /// @dev Only the owner can call this function.
     function setDepositFee(uint256 _fee) external nonReentrant whenNotPaused onlyOwner {
-        if (_fee < 0) revert WrongFee();
         if (_fee > DEPOSIT_MAX_FEE) revert FeeTooHigh();
         depositFee = _fee;
 
@@ -922,7 +920,6 @@ contract Validator is IValidator, ReentrancyGuard {
     /// @param _fee The new fee percentage to set.
     /// @dev Only the owner can call this function.
     function setClaimFee(uint256 _fee) external nonReentrant whenNotPaused onlyOwner {
-        if (_fee < 0) revert WrongFee();
         if (_fee > CLAIM_MAX_FEE) revert FeeTooHigh();
         claimFee = _fee;
 

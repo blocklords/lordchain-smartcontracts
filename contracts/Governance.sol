@@ -128,7 +128,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         if (_startTime >= _endTime|| block.timestamp > _startTime) revert WrongTime();
         if (_endTime >= _boostStartTime) revert WrongTime();
         if (_boostStartTime >= _boostEndTime) revert WrongBoostTime();
-        if (_boostReward <= 0) revert WrongValue();
+        if (_boostReward == 0) revert ZeroAmount();
 
         uint256 proposalId = proposalCount++;
 
@@ -168,7 +168,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     * @param _weight vote weights corresponding to each choice (for both regular and boost proposals)
     */
     function vote(uint256 _proposalId, uint256 _choiceId, uint256 _weight) external nonReentrant {
-        if (_weight > 100 || _weight <= 0) revert InvalidWeight();
+        if (_weight > 100 || _weight == 0) revert InvalidWeight();
         if (votedStatus[_proposalId][msg.sender] == true) revert UserIsVoted();
 
         // Declare the Proposal storage variable here after checking the type of proposal
@@ -253,7 +253,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         rewardAmount = proposalUserTotalVotes[_proposalId][msg.sender] * voteReward[_proposalId] / proposalTotalVotes[_proposalId];
 
         // Check if the user has any pending rewards to claim
-        if (rewardAmount <= 0) revert ZeroAmount();
+        if (rewardAmount == 0) revert ZeroAmount();
 
         // Transfer the reward amount from the bank to the MasterValidator for staking
         IERC20(token).safeTransferFrom(bank, masterValidator, rewardAmount);
@@ -302,7 +302,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         uint256 availableVeLrds = IValidator(masterValidator).veLrdsBalance(msg.sender);
         
         // Prevent zero available VeLrds to votes
-        if (availableVeLrds <= 0) revert ZeroVelrds();
+        if (availableVeLrds == 0) revert ZeroVelrds();
 
         // Accumulate the total weight of the user's vote
         stakeWeight = availableVeLrds * _weight / 100;  
@@ -375,7 +375,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         uint256 totalReward  = voteReward[_proposalId];  // Total reward to distribute
 
         // Ensure that the reward amount is greater than 0
-        if (totalReward <= 0) revert ZeroAmount();
+        if (totalReward == 0) revert ZeroAmount();
 
         // Check if the proposal is a boost proposal
         if (isBoostProposal) {
@@ -410,7 +410,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     function setVoteReward(uint256 _proposalId, uint256 _rewardAmount) external onlyAdmin {
         
         // Check that the reward amount is greater than zero
-        if (_rewardAmount <= 0) revert WrongValue();
+        if (_rewardAmount == 0) revert ZeroAmount();
 
         // Set the reward token address and reward amount for the proposal
         voteReward[_proposalId] = _rewardAmount;
@@ -466,7 +466,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         }
 
         uint256 totalBoostReward = boostProposal.boostReward;
-        if (totalBoostReward <= 0) revert RewardIsZero();
+        if (totalBoostReward == 0) revert RewardIsZero();
 
         uint256 totalVotes = 0;
 
