@@ -224,7 +224,7 @@ contract Validator is IValidator, ReentrancyGuard {
 
         IValidatorFactory(factory).addTotalStakedWallet();
 
-        _deposit(_amount, _lockDuration, user);
+        _deposit(_amount, _lockDuration, msg.sender, false);
     }
 
     /// @inheritdoc IValidator
@@ -237,7 +237,7 @@ contract Validator is IValidator, ReentrancyGuard {
             if (block.timestamp > user.lockEndTime) revert LockTimeExceeded();
         }
 
-        _deposit(_amount, 0, user);
+        _deposit(_amount, 0, msg.sender, false);
     }
 
     /// @inheritdoc IValidator
@@ -264,7 +264,7 @@ contract Validator is IValidator, ReentrancyGuard {
             IGovernance(governance).resetVotes(msg.sender);
         }
 
-        _deposit(0, _lockDuration, user);
+        _deposit(0, _lockDuration, msg.sender, false);
     }
 
     /// @inheritdoc IValidator
@@ -472,8 +472,11 @@ contract Validator is IValidator, ReentrancyGuard {
     ///      and records the lock duration if specified. It also updates the total staked amount in the factory contract.
     /// @param _amount The amount of tokens the user wishes to deposit.
     /// @param _lockDuration The duration for which the tokens will be locked. If set to 0, the tokens will not be locked.
-    /// @param _user The user information struct to be updated.
-    function _deposit(uint256 _amount, uint256 _lockDuration, UserInfo storage _user) internal {
+    /// @param _userAddress The user wallet address.
+    /// @param _fromBoost Whether the boost reward deposit.
+    function _deposit(uint256 _amount, uint256 _lockDuration, address _userAddress, bool _fromBoost) internal {
+        UserInfo storage user = userInfo[_userAddress];
+        
         // Update global reward state and user-specific rewards
         _updateValidator();
         _updateBoostReward();
@@ -487,28 +490,30 @@ contract Validator is IValidator, ReentrancyGuard {
             if (amountAfterFee <= 0) revert InsufficientAmount();
 
             // Call _claim to distribute the rewards
-            if (_user.amount > 0) {
-                _claim(_user);
+            if (user.amount > 0) {
+                _claim(user);
             }
             
             // Transfer the staked amount to the contract
-            IERC20(token).safeTransferFrom(msg.sender, address(this), amountAfterFee);
+            if (_fromBoost ==  false) {
+                IERC20(token).safeTransferFrom(_userAddress, address(this), amountAfterFee);
+            }
 
             // If there is a fee, transfer it to the owner address
             if (fee > 0) {
-                IERC20(token).safeTransferFrom(msg.sender, owner, fee);
+                IERC20(token).safeTransferFrom(_userAddress, owner, fee);
             }
 
             // Update the user's staked amount
-            _user.amount += amountAfterFee;
+            user.amount += amountAfterFee;
             totalStaked  += amountAfterFee;
 
-            _updateUserDebt(_user);
+            _updateUserDebt(user);
 
             // If a lock duration is provided, set the lock start and end times
             if (_lockDuration > 0) {
-                _user.lockStartTime = block.timestamp;
-                _user.lockEndTime = _lockDuration + block.timestamp;
+                user.lockStartTime = block.timestamp;
+                user.lockEndTime = _lockDuration + block.timestamp;
             }
 
             // Update the total staked amount in the factory contract
@@ -517,11 +522,11 @@ contract Validator is IValidator, ReentrancyGuard {
 
         // If lock duration is provided but no amount is being deposited, just extend the lock duration
         if (_lockDuration > 0 && _amount == 0) {
-            _user.lockEndTime = block.timestamp < _user.lockEndTime ? _user.lockEndTime + _lockDuration : block.timestamp + _lockDuration;
+            user.lockEndTime = block.timestamp < user.lockEndTime ? user.lockEndTime + _lockDuration : block.timestamp + _lockDuration;
         }
 
         // Emit the Deposit event
-        emit Deposit(msg.sender, _amount, _lockDuration, _user.lockEndTime);
+        emit Deposit(_userAddress, _amount, _lockDuration, user.lockEndTime);
     }
 
     /// @notice Returns the index of the current active reward period based on the current time.
@@ -730,7 +735,7 @@ contract Validator is IValidator, ReentrancyGuard {
     }
 
     /// @inheritdoc IValidator
-    function stakeFor(address _user, uint256 _amount) external onlyGovernance {
+    function stakeFor(address _user, uint256 _amount, bool _fromBoost) external onlyGovernance {
         // Increase the user's staked amount
         UserInfo storage user = userInfo[_user];
         if (user.amount <= 0 ) revert NoLockCreated(); 
@@ -739,7 +744,7 @@ contract Validator is IValidator, ReentrancyGuard {
             if (block.timestamp > user.lockEndTime) revert LockTimeExceeded();
         }
 
-        _deposit(_amount, 0, user);
+        _deposit(_amount, 0, _user, _fromBoost);
 
         emit StakeForUser(_user, _amount);
     }
@@ -782,8 +787,6 @@ contract Validator is IValidator, ReentrancyGuard {
         for (uint256 i = 0; i < currentBoostRewardPeriodIndex; i++) {
             BoostReward storage boost = boostRewards[i];
 
-            if(!IGovernance(governance).isBoostVote(i)) continue ;
-
             if (block.timestamp < boost.startTime) {
                 break;
             }
@@ -805,8 +808,6 @@ contract Validator is IValidator, ReentrancyGuard {
         // Loop through all reward periods to update rewards for the active periods
         for (uint256 i = 0; i < currentBoostRewardPeriodIndex; i++) {
             BoostReward storage boost = boostRewards[i];
-
-            if(!IGovernance(governance).isBoostVote(i)) continue ;
 
             // Check if the current time is within the valid time range of the reward period
             if (block.timestamp >= boost.startTime) {
@@ -862,8 +863,6 @@ contract Validator is IValidator, ReentrancyGuard {
         // Loop through each reward period from last updated period to the current
         for (uint256 i = 0; i < currentBoostRewardPeriodIndex; i++) {
             BoostReward memory boost = boostRewards[i];
-
-            if(!IGovernance(governance).isBoostVote(i)) continue ;
 
             if (_user.amount == 0 || block.timestamp < boost.startTime) continue;
 

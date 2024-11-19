@@ -259,7 +259,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         IERC20(token).safeTransferFrom(bank, masterValidator, rewardAmount);
 
         // Stake the reward in the MasterValidator contract on behalf of the user
-        IValidator(masterValidator).stakeFor(msg.sender, rewardAmount);
+        IValidator(masterValidator).stakeFor(msg.sender, rewardAmount, true);
 
         // Mark the user as having claimed the reward for this proposal
         hasClaimedReward[_proposalId][msg.sender] = true;
@@ -495,10 +495,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         }
 
         // Reset the boost reward to avoid double distribution
-        boostProposal.boostReward = 0;   
-        
-        // Change proposal status to 'Cancelled' after reward distribution is completed
-        boostProposal.status = FinalizationStatus.Cancelled;
+        boostProposal.boostReward = 0;
 
         emit BoostRewardDistributed(proposalId, totalBoostReward);
     }

@@ -129,7 +129,8 @@ interface IValidator {
     /// It increases the user's staked balance by the specified amount.
     /// @param _user The address of the user for whom tokens are being staked.
     /// @param _amount The amount of tokens to stake for the user.
-    function stakeFor(address _user, uint256 _amount) external;
+    /// @param _fromBoost Whether the boost reward deposit.
+    function stakeFor(address _user, uint256 _amount, bool _fromBoost) external;
 
     /// @dev Checks whether a user has already purchased a validator of a specific quality.
     /// @param _user The address of the user to check.
