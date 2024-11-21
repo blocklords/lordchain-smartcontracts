@@ -238,9 +238,27 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     * @param _proposalId The ID of the proposal for which the user wants to claim rewards.
     */
     function claimAndLock(uint256 _proposalId) external nonReentrant {
+        // Check if the proposal is a boost proposal
+        bool isBoostProposal = isBoostVote[_proposalId];
+        FinalizationStatus status = FinalizationStatus.Pending;
+
+        // Check if the proposal is a boost proposal
+        if (isBoostProposal) {
+            // For boost proposals, retrieve the reward details and check voting period
+            ValidatorBoostProposal storage boostProposal = boostProposals[_proposalId];
+
+            // Get the boost proposal status
+            status = boostProposal.status;
+        } else {
+            // For regular proposals, retrieve the reward details and check voting period
+            Proposal storage proposal = proposals[_proposalId];
+            
+            // Get the proposal status
+            status = proposal.status;
+        }
 
         // Ensure the proposal status is 'Executed' before claiming rewards
-        if (proposals[_proposalId].status != FinalizationStatus.Executed) revert WrongStatus();
+        if (status != FinalizationStatus.Executed) revert WrongStatus();
 
         // Ensure the user has voted on the proposal
         if (votedStatus[_proposalId][msg.sender] == false) revert UserIsNotVoted();
