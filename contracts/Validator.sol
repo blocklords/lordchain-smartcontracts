@@ -781,7 +781,7 @@ contract Validator is IValidator, ReentrancyGuard {
      * The function updates the claimed amount within each boost period and adjusts the user's reward debt.
      * @param _totalBoostPending The amount of the boost reward period.
      */
-    function _claimBoostReward(uint256 _totalBoostPending) internal nonReentrant whenNotPaused {
+    function _claimBoostReward(uint256 _totalBoostPending) internal whenNotPaused {
         UserInfo storage user = userInfo[msg.sender];
 
         // Transfer the total pending boost reward to the user
