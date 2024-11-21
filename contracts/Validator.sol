@@ -591,7 +591,7 @@ contract Validator is IValidator, ReentrancyGuard {
         uint256 totalBoostPending = _calculateBoostPending(user);
 
         if (totalBoostPending > 0) {
-            _claimBoostReward(totalBoostPending);
+            _claimBoostReward(_userAddress, totalBoostPending);
         }
         
         emit Claim(_userAddress, userClaimAmount, feeAmount);
@@ -779,13 +779,14 @@ contract Validator is IValidator, ReentrancyGuard {
      * @dev Allows users to claim accumulated boost rewards.
      * Claims all pending rewards from all unclaimed boost periods and transfers them to the user.
      * The function updates the claimed amount within each boost period and adjusts the user's reward debt.
+    /// @param _userAddress The user wallet address.
      * @param _totalBoostPending The amount of the boost reward period.
      */
-    function _claimBoostReward(uint256 _totalBoostPending) internal whenNotPaused {
-        UserInfo storage user = userInfo[msg.sender];
+    function _claimBoostReward(address _userAddress, uint256 _totalBoostPending) internal whenNotPaused {
+        UserInfo storage user = userInfo[_userAddress];
 
         // Transfer the total pending boost reward to the user
-        IERC20(token).transfer(msg.sender, _totalBoostPending);
+        IERC20(token).transfer(_userAddress, _totalBoostPending);
         
         uint256 totalBoostDebt = 0;
 
@@ -800,9 +801,9 @@ contract Validator is IValidator, ReentrancyGuard {
             totalBoostDebt += (user.amount * boost.accTokenPerShare) / PRECISION_FACTOR;
         }
 
-        boostRewardDebt[msg.sender] = totalBoostDebt; 
+        boostRewardDebt[_userAddress] = totalBoostDebt; 
 
-        emit BoostRewardClaimed(msg.sender, _totalBoostPending);
+        emit BoostRewardClaimed(_userAddress, _totalBoostPending);
     }
 
     /**
