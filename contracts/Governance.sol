@@ -42,8 +42,9 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         Cancelled                       // Cancelled The proposal has been cancelled
     }
 
-    address public admin;                  // The address of the contract admin
+    uint256 public PRECISION_FACTOR = 10**12;       // The precision factor for reward calculations
     uint256 public proposalCount;          // Counter for proposal IDs
+    address public admin;                  // The address of the contract admin
     address public masterValidator;        // Address of the master validator contract
     address public factory;                // Address of the factory contract
     address public bank;                   // Address of the bank contract
@@ -299,15 +300,15 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         _validateVoteChoice(_proposalId, _choiceId, _totalChoices, _isBoostVote);
 
         // Ensure the user's total vote weight does not exceed their available veLrds balance
-        uint256 availableVeLrds = IValidator(masterValidator).veLrdsBalance(msg.sender);
-        
+        uint256 VeLrdsBalance = IValidator(masterValidator).veLrdsBalance(msg.sender);
+
         // Prevent zero available VeLrds to votes
-        if (availableVeLrds == 0) revert ZeroVelrds();
+        if (VeLrdsBalance == 0) revert ZeroVelrds();
+
+        if (userTotalVotes[msg.sender] > VeLrdsBalance) revert ExceedsAvailableWeight();
 
         // Accumulate the total weight of the user's vote
-        stakeWeight = availableVeLrds * _weight / 100;  
-
-        if ((stakeWeight + userTotalVotes[msg.sender]) > availableVeLrds) revert ExceedsAvailableWeight();
+        stakeWeight = ((VeLrdsBalance - userTotalVotes[msg.sender]) * _weight * PRECISION_FACTOR) / 100 / PRECISION_FACTOR;  
 
         // Update user votes for the selected option
         userVotes[_proposalId][msg.sender][_choiceId] = stakeWeight;
