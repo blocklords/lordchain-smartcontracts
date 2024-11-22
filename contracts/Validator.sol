@@ -318,6 +318,7 @@ contract Validator is IValidator, ReentrancyGuard {
         emit Withdraw(msg.sender, user.amount);
         
         delete userInfo[msg.sender];
+        boostRewardDebt[msg.sender] = 0;
     }
     
     /// @inheritdoc IValidator
@@ -514,6 +515,8 @@ contract Validator is IValidator, ReentrancyGuard {
             totalStaked  += amountAfterFee;
 
             _updateUserDebt(user);
+            _updateUserBoostDebt(_userAddress);
+
 
             // If a lock duration is provided, set the lock start and end times
             if (_lockDuration > 0) {
@@ -588,7 +591,7 @@ contract Validator is IValidator, ReentrancyGuard {
         // Transfer the remaining rewards to the user
         IERC20(token).safeTransfer(_userAddress, userClaimAmount);
 
-        uint256 totalBoostPending = _calculateBoostPending(user);
+        uint256 totalBoostPending = _calculateBoostPending(_userAddress);
 
         if (totalBoostPending > 0) {
             _claimBoostReward(_userAddress, totalBoostPending);
@@ -783,11 +786,20 @@ contract Validator is IValidator, ReentrancyGuard {
      * @param _totalBoostPending The amount of the boost reward period.
      */
     function _claimBoostReward(address _userAddress, uint256 _totalBoostPending) internal whenNotPaused {
-        UserInfo storage user = userInfo[_userAddress];
 
         // Transfer the total pending boost reward to the user
-        IERC20(token).transfer(_userAddress, _totalBoostPending);
+        IERC20(token).safeTransfer(_userAddress, _totalBoostPending);
         
+        _updateUserBoostDebt(_userAddress);
+
+        emit BoostRewardClaimed(_userAddress, _totalBoostPending);
+    }
+    
+    /// @notice Updates the user's accumulated rewards across boost reward periods.
+    /// @param _userAddress The user information struct to be updated.
+    function _updateUserBoostDebt(address _userAddress) internal {
+        UserInfo storage user = userInfo[_userAddress];
+       
         uint256 totalBoostDebt = 0;
 
         // Loop through each reward period from the user's last updated period to the current
@@ -802,8 +814,6 @@ contract Validator is IValidator, ReentrancyGuard {
         }
 
         boostRewardDebt[_userAddress] = totalBoostDebt; 
-
-        emit BoostRewardClaimed(_userAddress, _totalBoostPending);
     }
 
     /**
@@ -861,9 +871,10 @@ contract Validator is IValidator, ReentrancyGuard {
     }
 
     // /// @notice Calculates the total boost pending rewards for a user across all eligible reward periods.
-    // /// @param _user The UserInfo struct of the user.
+    // /// @param _userAddress The user wallet address.
     // /// @return totalBoostPending The total amount of boost pending rewards for the user.
-    function _calculateBoostPending(UserInfo storage _user) internal view returns (uint256) {
+    function _calculateBoostPending(address _userAddress) internal view returns (uint256) {
+        UserInfo storage user = userInfo[_userAddress];
         
         uint totalBoostPending = 0;
 
@@ -871,22 +882,22 @@ contract Validator is IValidator, ReentrancyGuard {
         for (uint256 i = 0; i < currentBoostRewardPeriodIndex; i++) {
             BoostReward memory boost = boostRewards[i];
 
-            if (_user.amount == 0 || block.timestamp < boost.startTime) continue;
+            if (user.amount == 0 || block.timestamp < boost.startTime) continue;
 
-            totalBoostPending += (_user.amount *  boost.accTokenPerShare) / PRECISION_FACTOR;
+            totalBoostPending += (user.amount *  boost.accTokenPerShare) / PRECISION_FACTOR;
         }
 
-        return totalBoostPending - boostRewardDebt[msg.sender];
+        return totalBoostPending - boostRewardDebt[_userAddress];
     }
 
     /**
      * @dev Retrieves the total pending boost reward for a user across all unclaimed boost periods.
-     * @param _user The address of the user.
+     * @param _userAddress The address of the user.
      * @return The total pending boost reward for the specified user.
      */
-    function getUserBoostReward(address _user) external view returns (uint256) {
+    function getUserBoostReward(address _userAddress) external view returns (uint256) {
         
-        UserInfo storage user = userInfo[_user];
+        UserInfo storage user = userInfo[_userAddress];
         
         uint256 totalBoostPending = 0;
 
@@ -907,7 +918,7 @@ contract Validator is IValidator, ReentrancyGuard {
             totalBoostPending += pending;
         }
 
-        return totalBoostPending - boostRewardDebt[msg.sender];
+        return totalBoostPending - boostRewardDebt[_userAddress];
     }
 
     /*//////////////////////////////////////////////////////////////
