@@ -573,31 +573,31 @@ contract Validator is IValidator, ReentrancyGuard {
 
         uint256 totalPending = _calculateTotalPending(user);
         
-        // If there are no pending rewards, return zero values
-        if (totalPending == 0) return (0, 0);
+        if (totalPending > 0) {
 
-        // Ensure the contract has enough reward tokens to cover the pending claim
-        if (IERC20(token).balanceOf(address(this)) < totalPending) revert NotEnoughRewardToken();
+            // Ensure the contract has enough reward tokens to cover the pending claim
+            if (IERC20(token).balanceOf(address(this)) < totalPending) revert NotEnoughRewardToken();
 
-        // Calculate the claim fee (claimFee is in basis points, e.g., 300 = 3%)
-        feeAmount = (totalPending * claimFee) / 10000;
-        userClaimAmount = totalPending - feeAmount;
+            // Calculate the claim fee (claimFee is in basis points, e.g., 300 = 3%)
+            feeAmount = (totalPending * claimFee) / 10000;
+            userClaimAmount = totalPending - feeAmount;
 
-        // Transfer the fee to the contract owner
-        if (feeAmount > 0) {
-            IERC20(token).safeTransfer(owner, feeAmount);
+            // Transfer the fee to the contract owner
+            if (feeAmount > 0) {
+                IERC20(token).safeTransfer(owner, feeAmount);
+            }
+
+            // Transfer the remaining rewards to the user
+            IERC20(token).safeTransfer(_userAddress, userClaimAmount);
+            
+            emit Claim(_userAddress, userClaimAmount, feeAmount);
         }
-
-        // Transfer the remaining rewards to the user
-        IERC20(token).safeTransfer(_userAddress, userClaimAmount);
 
         uint256 totalBoostPending = _calculateBoostPending(_userAddress);
 
         if (totalBoostPending > 0) {
             _claimBoostReward(_userAddress, totalBoostPending);
         }
-        
-        emit Claim(_userAddress, userClaimAmount, feeAmount);
     }
 
     // /// @notice Calculates the total pending rewards for a user across all eligible reward periods.
