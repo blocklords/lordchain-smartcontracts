@@ -325,10 +325,10 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         // Prevent zero available VeLrds to votes
         if (VeLrdsBalance == 0) revert ZeroVelrds();
 
-        if (userTotalVotes[msg.sender] > VeLrdsBalance) revert ExceedsAvailableWeight();
+        if (userTotalVotes[msg.sender] >= VeLrdsBalance) revert ExceedsAvailableWeight();
 
         // Accumulate the total weight of the user's vote
-        stakeWeight = ((VeLrdsBalance - userTotalVotes[msg.sender]) * _weight * PRECISION_FACTOR) / 100 / PRECISION_FACTOR;  
+        stakeWeight = (VeLrdsBalance - userTotalVotes[msg.sender]) * _weight / 100;  
 
         // Update user votes for the selected option
         userVotes[_proposalId][msg.sender][_choiceId] = stakeWeight;
