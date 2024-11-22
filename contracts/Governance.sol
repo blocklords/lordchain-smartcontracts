@@ -34,6 +34,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         uint256 boostStartTime;         // boostStartTime The start time for the distribution of the boost reward
         uint256 boostEndTime;           // boostEndTime The end time for the distribution of the boost reward
         FinalizationStatus status;      // status The current status of the boost proposal (Pending, Executed, Cancelled)
+        bool isBoostRewardDistributed;  // Whether the boost reward has been distributed
     }
     
     enum FinalizationStatus {
@@ -134,13 +135,14 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         uint256 proposalId = proposalCount++;
 
         boostProposals[proposalId] = ValidatorBoostProposal({
-            startTime:     _startTime,
-            endTime:       _endTime,
-            metadataURI:   _metadataURI,
-            boostReward:   _boostReward,
-            boostStartTime:_boostStartTime,
-            boostEndTime:  _boostEndTime,
-            status:        FinalizationStatus.Pending
+            startTime:                  _startTime,
+            endTime:                    _endTime,
+            metadataURI:                _metadataURI,
+            boostReward:                _boostReward,
+            boostStartTime:             _boostStartTime,
+            boostEndTime:               _boostEndTime,
+            status:                     FinalizationStatus.Pending,
+            isBoostRewardDistributed:   false
         });
 
         address[] memory _validators = IValidatorFactory(factory).getValidators();
@@ -479,6 +481,8 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     function addBoostReward(uint256 proposalId) external onlyAdmin {
         ValidatorBoostProposal storage boostProposal = boostProposals[proposalId];
 
+        if (boostProposal.isBoostRewardDistributed) revert RewardAlreadyDistributed();
+        
         // Check if the current time is within the reward distribution period
         if (block.timestamp < boostProposal.endTime || block.timestamp > boostProposal.boostStartTime) {
             revert RewardDistributionNotAllowed();
@@ -513,8 +517,8 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
             emit BoostRewardTransferred(proposalId, validator, validatorBoostReward);
         }
 
-        // Reset the boost reward to avoid double distribution
-        boostProposal.boostReward = 0;
+        // Reset the isBoostRewardDistributed to avoid double distribution
+        boostProposal.isBoostRewardDistributed = true;
 
         emit BoostRewardDistributed(proposalId, totalBoostReward);
     }
