@@ -580,4 +580,16 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     function setAdmin(address _newAdmin) external onlyOwner {
         admin = _newAdmin;
     }
+
+    /**
+    * @dev Sets the address of the new bank.
+    * This function can only be called by the current owner of the contract.
+    * Once executed, the specified address will be set as the bank of the contract.
+    * 
+    * @param _newBank The address of the new bank. The provided address will be set as the bank of the contract.
+    */
+    function setBank(address _newBank) external onlyOwner {
+        bank = _newBank;
+    }
+
 }
