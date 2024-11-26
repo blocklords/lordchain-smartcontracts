@@ -2,16 +2,45 @@
 pragma solidity ^0.8.28;
 
 import "@openzeppelin/contracts/proxy/Clones.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 
 import "./interfaces/IValidatorFactory.sol";
 import "./interfaces/IValidator.sol";
 
-contract  ValidatorFactory is IValidatorFactory {
+contract  ValidatorFactory is IValidatorFactory, Ownable2Step {
 
     struct ValidatorInfo {
         uint256 startTime;
         uint256 endTime;
         uint256 totalReward;
+    }
+    
+    struct ValidatorStats {
+        address validatorAddress;
+        uint256 totalStaked;
+        uint256 rewardStartTime;
+        uint256 rewardEndTime;
+        uint256 rewardTotal;
+        bool isClaimed;
+        uint256 AllocatedValidatorRewards;
+    }
+
+    struct BoostStats {
+        address validatorAddress;
+        uint256 boostRewardTotal;
+        uint256 boostStartTime;
+        uint256 boostEndTime;
+    }
+
+    struct UserStats {
+        address validatorAddress;
+        uint256 userAmount;
+        uint256 lockStartTime;
+        uint256 lockEndTime;
+        uint256 baseReward;
+        uint256 veLRDSBalance;
+        bool autoMax;
+        uint256 boostReward;
     }
 
     uint256 public totalStakedAmount;
@@ -34,7 +63,7 @@ contract  ValidatorFactory is IValidatorFactory {
         _;
     }
 
-    constructor(address _implementation) {
+    constructor(address _implementation) Ownable(msg.sender) {
         implementation = _implementation;
         admin = msg.sender;
         
@@ -138,6 +167,28 @@ contract  ValidatorFactory is IValidatorFactory {
         _isValidator[validator] = true;
 
         emit ValidatorCreated(_owner, validator, allValidators.length);
+    }
+
+    /**
+    * @dev Transfers ownership of the contract to a new account (`_newOwner`).
+    * This function overrides the `transferOwnership` function from the parent contract 
+    * to call the parent contract's implementation of ownership transfer.
+    * Only the current owner can call this function.
+    *
+    * @param _newOwner The address to transfer ownership to.
+    */
+    function transferOwnership(address _newOwner) public override onlyOwner {
+        super.transferOwnership(_newOwner);
+    }
+    
+    /**
+    * @dev Allows the nominated address to accept ownership transfer.
+    * This function overrides the `acceptOwnership` function from the parent contract 
+    * to call the parent contract's implementation of accepting ownership.
+    * The nominated address must call this function to complete the ownership transfer.
+    */
+    function acceptOwnership() public override {
+        super.acceptOwnership();
     }
 
 }
