@@ -24,6 +24,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         string metadataURI;             // metadataURI URI for additional metadata associated with the proposal
         uint256 totalChoices;           // totalChoices The number of available choices for the proposal
         FinalizationStatus status;      // status The current status of the proposal (Pending, Executed, Cancelled)
+        uint256 cycle;                  // Proposal cycle
     }
     
     struct ValidatorBoostProposal {
@@ -43,8 +44,8 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         Cancelled                       // Cancelled The proposal has been cancelled
     }
 
-    uint256 public PRECISION_FACTOR = 10**12;       // The precision factor for reward calculations
     uint256 public proposalCount;          // Counter for proposal IDs
+    uint256 public currentCycle;           // Current voting cycle
     address public admin;                  // The address of the contract admin
     address public masterValidator;        // Address of the master validator contract
     address public factory;                // Address of the factory contract
@@ -53,7 +54,6 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
 
     mapping(uint256 => Proposal) public proposals;                                          // Mapping from proposal ID to Proposal struct
     mapping(uint256 => ValidatorBoostProposal) public boostProposals;                       // Mapping from proposal ID to ValidatorBoostProposal struct
-    mapping(address => uint256) public userTotalVotes;                                      // Mapping from user address to their total votes
     mapping(uint256 => mapping(address => mapping(uint256 => uint256))) public userVotes;   // Mapping from proposal ID -> user -> choice -> weight
     mapping(uint256 => mapping(uint256 => uint256)) public optionVotes;                     // Mapping from proposal ID -> choice -> total votes
 
@@ -65,6 +65,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     mapping(uint256 => uint256) public proposalTotalVotes;                                  // Mapping tracks the total votes received by a proposal across all voters.
     mapping(uint256 => mapping(address => uint256)) public proposalUserTotalVotes;          // Mpping records the individual vote count for each user on each proposal.
     mapping(uint256 => mapping(address => bool)) public hasClaimedReward;                   // Mapping stores whether a user has already claimed their reward for a given proposal.
+    mapping(address => mapping(uint256 => uint256)) public userCycleUsedVotes;              // Player address => cycle => Used voting weight
 
     // Modifier to ensure only the admin can access the function
     modifier onlyAdmin() {
@@ -93,17 +94,26 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
      * @param _metadataURI URI for additional metadata associated with the proposal
      * @param _totalChoices The number of available choices for the proposal
      */
-    function createPropose(uint256 _startTime, uint256 _endTime, string calldata _metadataURI, uint256 _totalChoices) external onlyAdmin {
+    function createPropose(uint256 _startTime, uint256 _endTime, string calldata _metadataURI, uint256 _totalChoices, uint256 _cycle) external onlyAdmin {
         if(_startTime >=_endTime || block.timestamp > _startTime) revert WrongTime();
         
         uint256 proposalId = proposalCount++;
+
+        // If the proposal period is greater than the current period, currentCycle is updated
+        if (_cycle < currentCycle) revert InvalidCycle();
+        
+        // If the proposal period is greater than the current period, currentCycle is updated
+        if (_cycle > currentCycle) {
+            currentCycle = _cycle;
+        }
         
         proposals[proposalId] = Proposal({
             startTime:     _startTime,
             endTime:       _endTime,
             metadataURI:   _metadataURI,
             totalChoices:  _totalChoices,
-            status:        FinalizationStatus.Pending
+            status:        FinalizationStatus.Pending,
+            cycle:         _cycle
         });
         isBoostVote[proposalId] = false;
 
@@ -125,7 +135,8 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         string calldata _metadataURI,
         uint256 _boostReward,
         uint256 _boostStartTime,
-        uint256 _boostEndTime
+        uint256 _boostEndTime, 
+        uint256 _cycle
     ) external onlyAdmin {
         if (_startTime >= _endTime|| block.timestamp > _startTime) revert WrongTime();
         if (_endTime >= _boostStartTime) revert WrongTime();
@@ -133,6 +144,14 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         if (_boostReward == 0) revert ZeroAmount();
 
         uint256 proposalId = proposalCount++;
+
+        // If the proposal period is greater than the current period, currentCycle is updated
+        if (_cycle < currentCycle) revert InvalidCycle();
+        
+        // If the proposal period is greater than the current period, currentCycle is updated
+        if (_cycle > currentCycle) {
+            currentCycle = _cycle;
+        }
 
         boostProposals[proposalId] = ValidatorBoostProposal({
             startTime:                  _startTime,
@@ -142,7 +161,8 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
             boostStartTime:             _boostStartTime,
             boostEndTime:               _boostEndTime,
             status:                     FinalizationStatus.Pending,
-            isBoostRewardDistributed:   false
+            isBoostRewardDistributed:   false,
+            cycle:                      _cycle
         });
 
         address[] memory _validators = IValidatorFactory(factory).getValidators();
@@ -182,7 +202,7 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
             // Common check for voting period
             _checkVotingPeriod(boostProposal.startTime, boostProposal.endTime, boostProposal.status);
 
-            _vote(_proposalId, _choiceId, _weight, proposalValidatorCounts[_proposalId], true);
+            _vote(_proposalId, _choiceId, _weight, proposalValidatorCounts[_proposalId], true, boostProposal.cycle);
         } else {
             // Regular proposal voting logic
             Proposal storage proposal = proposals[_proposalId];
@@ -190,14 +210,16 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
             // Common check for voting period
             _checkVotingPeriod(proposal.startTime, proposal.endTime, proposal.status);
 
-            _vote(_proposalId, _choiceId, _weight, proposal.totalChoices, false);
+            _vote(_proposalId, _choiceId, _weight, proposal.totalChoices, false, proposal.cycle);
         }
     }
 
     /// @inheritdoc IGovernance
     function resetVotes(address _user) external {
         if (msg.sender != masterValidator) revert NotValidator();
-        userTotalVotes[_user] = 0;
+        userCycleUsedVotes[_user][currentCycle] = 0;
+        
+        emit VotesReset(_user, currentCycle);
     }
 
     /**
@@ -312,7 +334,8 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         uint256 _choiceId, 
         uint256 _weight, 
         uint256 _totalChoices, 
-        bool _isBoostVote
+        bool _isBoostVote,
+        uint256 _cycle
     ) internal {
         uint256 stakeWeight = 0;
 
@@ -325,10 +348,12 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         // Prevent zero available VeLrds to votes
         if (VeLrdsBalance == 0) revert ZeroVelrds();
 
-        if (userTotalVotes[msg.sender] >= VeLrdsBalance) revert ExceedsAvailableWeight();
+        // if (userTotalVotes[msg.sender] >= VeLrdsBalance) revert ExceedsAvailableWeight();
+        uint256 usedVotes = userCycleUsedVotes[msg.sender][_cycle];
+        if (usedVotes >= VeLrdsBalance) revert ExceedsAvailableWeight();
 
         // Accumulate the total weight of the user's vote
-        stakeWeight = (VeLrdsBalance - userTotalVotes[msg.sender]) * _weight / 100;  
+        stakeWeight = (VeLrdsBalance - usedVotes) * _weight / 100;  
 
         // Update user votes for the selected option
         userVotes[_proposalId][msg.sender][_choiceId] = stakeWeight;
@@ -337,14 +362,11 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         optionVotes[_proposalId][_choiceId] += stakeWeight;
 
         // Update the user's total votes
-        userTotalVotes[msg.sender] += stakeWeight;
+        userCycleUsedVotes[msg.sender][_cycle] += stakeWeight;
 
         proposalTotalVotes[_proposalId] += stakeWeight;
         
-        proposalUserTotalVotes[_proposalId][msg.sender] = stakeWeight;
-         
-        // Record the voter for the proposal
-        // _recordVoter(_proposalId, msg.sender);
+        proposalUserTotalVotes[_proposalId][msg.sender] = stakeWeight; 
 
         // Record the player's vote
         votedStatus[_proposalId][msg.sender] = true;
