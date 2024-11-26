@@ -1110,4 +1110,28 @@ contract Validator is IValidator, ReentrancyGuard {
 
         emit ValidatorOwnerChanged(_newOwner);
     }
+
+    /**
+     * @dev Sets the address of the new owner.
+     * This function can only be called by the current admin.
+     * Once executed, the specified address will be set as the owner of the contract.
+     * 
+     * @param _newOwner The address of the new owner.
+     */
+    function setOwner(address _newOwner) external onlyAdmin {
+        if (_newOwner != address(0)) revert ZeroAddress();
+        owner = _newOwner;
+    }
+
+    /**
+     * @dev Sets the address of the new admin.
+     * This function can only be called by the current admin.
+     * Once executed, the specified address will be set as the admin of the contract.
+     * 
+     * @param _newAdmin The address of the new admin.
+     */
+    function setAdmin(address _newAdmin) external onlyAdmin {
+        if (_newAdmin != address(0)) revert ZeroAddress();
+        admin = _newAdmin;
+    }
 }
