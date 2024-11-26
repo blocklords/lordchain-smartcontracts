@@ -1087,11 +1087,27 @@ contract Validator is IValidator, ReentrancyGuard {
     *
     * @param _paused A boolean value indicating whether to pause (true) or unpause (false) the contract.
     */
-    function setPause(bool _paused) external onlyOwner {
+    function setPause(bool _paused) external onlyAdmin {
         // If the new paused status is the same as the current one, revert the transaction
         if (_paused == isPaused) revert TheSameValue();
 
         // Update the paused status to the new value
         isPaused = _paused;
+    }
+
+    /// @notice This function allows the admin to change the owner of a Validator with quality 2 (non-sellable).
+    /// @dev Only the admin can call this function, and it applies to Validators with quality 2 (Super Validators).
+    /// @param _newOwner The new owner address for the Validator.
+    function changeValidatorOwner(address _newOwner) external onlyAdmin {
+
+        // Ensure that the Validator's quality is 2 (Super Validator)
+        if (quality != 2) revert NotSuperValidator();
+
+        isClaimed  = true;
+
+        // Update the owner to the new address
+        owner = _newOwner;
+
+        emit ValidatorOwnerChanged(_newOwner);
     }
 }
