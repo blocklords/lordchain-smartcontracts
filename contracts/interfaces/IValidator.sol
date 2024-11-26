@@ -39,11 +39,12 @@ interface IValidator {
     error InsufficientLockAmount();
     error GreaterThanMaxTime();
     error NotValidValidator();
+    error NotSuperValidator();
 
     event ClaimFees(address indexed sender, uint256 amount);
-    event Deposit(address indexed sender, uint256 amount, uint256 duration, uint256 endTime);
+    event Deposit(address indexed sender, uint256 amount, uint256 startTime, uint256 duration, uint256 endTime, uint256 time);
     event Claim( address indexed sender, uint256 userClaimAmount, uint256 feeAmount);
-    event Withdraw( address indexed sender, uint256 amount);
+    event Withdraw( address indexed sender, uint256 amount, uint256 time);
     event SetAutoMax(address indexed sender, bool open);
     event PurchaseValidator(address indexed sender, uint256 NP, uint256 quality);
     event SetDepositFee(address indexed sender, uint256 fee);
@@ -51,6 +52,7 @@ interface IValidator {
     event BoostRewardAdded(uint256 startTime, uint256 endTime, uint256 totalReward);
     event BoostRewardClaimed(address indexed sender, uint256 pendingBoostReward);
     event StakeForUser(address indexed sender, uint256 amount);
+    event ValidatorOwnerChanged(address indexed newOwner);
 
     /// @notice Returns the address of the PoolFactory that created this contract.
     /// @dev This function returns the address of the `PoolFactory` contract, which is responsible for deploying and managing the pool contract.
@@ -156,4 +158,37 @@ interface IValidator {
     /// @param _cost The cost to be added to the user's total validator cost.
     function _updatePlayerValidatorCost(address _user, uint256 _cost) external;
 
+    /// @notice Retrieves staking information for a specific user.
+    /// @param _user The wallet address of the user.
+    /// @return amount The total tokens staked by the user.
+    /// @return lockStartTime The timestamp when the user's staking lock period began.
+    /// @return lockEndTime The timestamp when the user's staking lock period ends.
+    /// @return baseReward The current pending base reward for the user.
+    /// @return veLRDSBalance The current veLRDS balance of the user.
+    /// @return autoMax A boolean indicating if the user has enabled automatic maximum staking.
+    /// @return boostReward The current pending boost reward for the user.
+    function getUserInfo(address _user) external view returns (uint256 amount, uint256 lockStartTime, uint256 lockEndTime, uint256 baseReward, uint256 veLRDSBalance, bool autoMax, uint256 boostReward);
+    
+    /// @notice Gets the pending rewards for a user.
+    /// @param _userAddress The address of the user to query.
+    /// @return The amount of pending rewards for the user.
+    function getUserPendingReward(address _userAddress) external view returns (uint256);
+
+    function totalStaked() external view returns (uint256);
+    
+    /// @notice This function retrieves the staking and reward information for the validator.
+    /// @dev It returns details such as the total amount staked, the reward period's start and end times, 
+    ///      the total reward available, and whether the reward has been claimed.
+    /// @return totalStaked The total amount of tokens staked by the validator.
+    /// @return startTime The start time of the current reward period.
+    /// @return endTime The end time of the current reward period.
+    /// @return totalReward The total reward available for the current reward period.
+    /// @return isClaimed A boolean indicating whether the reward has been claimed by the validator.
+    /// @return AllocatedValidatorRewards The total reward allocated to the validator during the current period.
+    function getValidatorStats() external view returns (uint256 totalStaked, uint256 startTime, uint256 endTime, uint256 totalReward, bool isClaimed, uint256 AllocatedValidatorRewards);
+    
+    /// @notice Returns the total reward, start time, and end time for the current active boost reward period.
+    /// @dev This function uses the `getCurrentBoostPeriod` function to determine the active boost period,
+    /// and then retrieves the total reward, start time, and end time for that period.
+    function getCurrentBoostReward() external view returns(uint256 totalReward, uint256 startTime, uint256 endTime);
 }

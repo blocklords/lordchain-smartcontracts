@@ -315,7 +315,7 @@ contract Validator is IValidator, ReentrancyGuard {
         IValidatorFactory(factory).subTotalStakedAmount(user.amount);
         IValidatorFactory(factory).subTotalStakedWallet();
 
-        emit Withdraw(msg.sender, user.amount);
+        emit Withdraw(msg.sender, user.amount, block.timestamp);
         
         delete userInfo[msg.sender];
         boostRewardDebt[msg.sender] = 0;
@@ -394,10 +394,8 @@ contract Validator is IValidator, ReentrancyGuard {
         emit PurchaseValidator(msg.sender, _np, _quality);
     }
 
-    // /// @notice Gets the pending rewards for a user.
-    // /// @param _userAddress The address of the user to query.
-    // /// @return The amount of pending rewards for the user.
-    function getUserPendingReward(address _userAddress) external view returns (uint256) {
+    /// @inheritdoc IValidator
+    function getUserPendingReward(address _userAddress) public view returns (uint256) {
         
         UserInfo storage user = userInfo[_userAddress];
         
@@ -428,7 +426,7 @@ contract Validator is IValidator, ReentrancyGuard {
     ///      considering the time elapsed in each period. Rewards are calculated based on the proportion of time
     ///      that has passed in each period relative to the total duration of the period.
     /// @return totalRewards The total rewards accumulated by the validator over all reward periods.
-    function getValidatorRewards() external view returns (uint256) {
+    function getValidatorRewards() public view returns (uint256) {
         uint256 totalRewards = 0;
 
         // Iterate through each reward period and calculate rewards for that period
@@ -534,12 +532,12 @@ contract Validator is IValidator, ReentrancyGuard {
         }
 
         // Emit the Deposit event
-        emit Deposit(_userAddress, _amount, _lockDuration, user.lockEndTime);
+        emit Deposit(_userAddress, _amount, user.lockStartTime, _lockDuration, user.lockEndTime, block.timestamp);
     }
 
     /// @notice Returns the index of the current active reward period based on the current time.
     /// @dev This function checks which reward period is currently active based on the block timestamp.
-    function getCurrentPeriod() external view returns(uint256) {
+    function getCurrentPeriod() public view returns(uint256) {
         // If there are no reward periods, return 0
         if (currentRewardPeriodIndex == 0) {
             return 0;
@@ -716,13 +714,70 @@ contract Validator is IValidator, ReentrancyGuard {
         playerValidatorCosts[_user] += _cost;
     }
 
+    /// @inheritdoc IValidator
+    function getUserInfo(address _user) external view returns (
+        uint256 amount,
+        uint256 lockStartTime,  
+        uint256 lockEndTime,  
+        uint256 baseReward, 
+        uint256 veLRDSBalance, 
+        bool autoMax,
+        uint256 boostReward) 
+    {  
+        // Retrieve the user's staking information
+        UserInfo memory user = userInfo[_user];
+
+        // Get the current base reward of the user
+        uint256 currentBaseReward = getUserPendingReward(_user);
+
+        // Get the current veLRDS balance of the user
+        uint256 currentVeLRDSBalance = veLrdsBalance(_user);
+
+        uint256 currentBoostReward = getUserBoostReward(_user);
+
+        // Return all relevant data
+        return ( user.amount, user.lockStartTime, user.lockEndTime, currentBaseReward, currentVeLRDSBalance, user.autoMax, currentBoostReward);
+    }
+
+    /// @inheritdoc IValidator
+    function getValidatorStats() external view  returns (
+        uint256 _totalStaked,  
+        uint256 _currentRewardStartTime,  
+        uint256 _currentRewardEndTime,  
+        uint256 _currentRewardTotal, 
+        bool _isClaimed, 
+        uint256 _AllocatedValidatorRewards) 
+    {
+        
+        // Retrieve the total staked amount
+        _totalStaked = totalStaked;
+
+        // Get the current reward period index
+        uint256 currentPeriodIndex = getCurrentPeriod();
+
+        uint256 getAllocatedValidatorRewards = getValidatorRewards();
+
+        // Fetch the details of the current reward period
+        RewardPeriod memory currentPeriod = rewardPeriods[currentPeriodIndex];
+        _currentRewardStartTime     = currentPeriod.startTime;
+        _currentRewardEndTime       = currentPeriod.endTime;
+        _currentRewardTotal         = currentPeriod.totalReward;
+        _isClaimed                  = isClaimed;
+        _AllocatedValidatorRewards  = getAllocatedValidatorRewards;
+
+        
+        // Return all relevant data
+        return (totalStaked, _currentRewardStartTime, _currentRewardEndTime, _currentRewardTotal, _isClaimed, _AllocatedValidatorRewards);
+    }
+
+
     /*//////////////////////////////////////////////////////////////
                                GOVERNANCE
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Return the voting weight of a givne user
     /// @param _user The address of a user
-    function veLrdsBalance(address _user) external view returns (uint256) {
+    function veLrdsBalance(address _user) public view returns (uint256) {
          UserInfo storage user = userInfo[_user];
 
         // If user has no amount staked or if not the master validator, return 0
@@ -895,7 +950,7 @@ contract Validator is IValidator, ReentrancyGuard {
      * @param _userAddress The address of the user.
      * @return The total pending boost reward for the specified user.
      */
-    function getUserBoostReward(address _userAddress) external view returns (uint256) {
+    function getUserBoostReward(address _userAddress) public view returns (uint256) {
         
         UserInfo storage user = userInfo[_userAddress];
         
@@ -919,6 +974,42 @@ contract Validator is IValidator, ReentrancyGuard {
         }
 
         return totalBoostPending - boostRewardDebt[_userAddress];
+    }
+
+    /// @notice Returns the index of the current active boost reward period based on the current time.
+    /// @dev This function checks which boost reward period is currently active based on the block timestamp.
+    function getCurrentBoostPeriod() public view returns(uint256) {
+        // If there are no boost periods, return 0
+        if (currentBoostRewardPeriodIndex == 0) {
+            return 0;
+        }
+
+        uint256 currentBoostPeriod = 0;
+
+        // Loop through all boost periods and check if the current time is within any of them
+        for (uint256 i = 0; i < currentBoostRewardPeriodIndex; i++) {
+            BoostReward storage period = boostRewards[i];
+            
+            currentBoostPeriod = i;
+
+            // If the current time is within the boost period's valid range (startTime to endTime)
+            if (block.timestamp >= period.startTime && block.timestamp <= period.endTime && period.isActive) {
+                return i; // Return the index of the active boost period
+            }
+        }
+
+        return currentBoostPeriod;
+    }
+
+    
+    /// @inheritdoc IValidator
+    function getCurrentBoostReward() external view returns(uint256 totalReward, uint256 startTime, uint256 endTime) {
+        uint256 currentBoostPeriodIndex = getCurrentBoostPeriod();
+
+        // Get the boost reward info
+        BoostReward memory currentBoostPeriod = boostRewards[currentBoostPeriodIndex];
+        
+        return (currentBoostPeriod.totalReward, currentBoostPeriod.startTime,currentBoostPeriod.endTime);
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -10,6 +10,7 @@ interface IValidatorFactory {
     error NotEnoughWallet();
     error NotRegisteredValidator();
     error InvalidTimePeriod();
+    error PageOutOfBounds();
     
     event ValidatorCreated(address indexed owner, address validator, uint256 validatorLength);
 
