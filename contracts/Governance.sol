@@ -36,6 +36,14 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         uint256 boostEndTime;           // boostEndTime The end time for the distribution of the boost reward
         FinalizationStatus status;      // status The current status of the boost proposal (Pending, Executed, Cancelled)
         bool isBoostRewardDistributed;  // Whether the boost reward has been distributed
+        uint256 cycle;                  // Proposal cycle
+    }
+    
+    struct ProposalDetails  {     
+        uint256 totalVotes;             // Total number of votes for the proposal
+        uint256 userVotes;              // Number of votes the user has cast on this proposal
+        bool hasClaimedReward;          // Whether the user has claimed the reward for this proposal (true if claimed, false if not)
+        FinalizationStatus votedStatus;               // Whether the user has voted on this proposal (true if voted, false if not)
     }
     
     enum FinalizationStatus {
@@ -553,6 +561,42 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
     function _checkExecuteReward(uint256 _endTime, FinalizationStatus _status) internal view {
         if (block.timestamp <= _endTime) revert TimeIsNotUp();
         if (_status != FinalizationStatus.Pending) revert WrongStatus();
+    }
+
+    /**
+    * @dev Retrieves all proposal data for a given user.
+    * @param _user The address of the user whose proposal data is being retrieved.
+    * @return proposalDetails An array of ProposalDetails structs containing details for each proposal.
+    * Each entry includes:
+    * - totalVotes: The total number of votes for the proposal.
+    * - userVotes: The number of votes the specific user has cast on the proposal.
+    * - hasClaimedReward: A boolean indicating whether the user has claimed their reward for the proposal.
+    * - votedStatus: A boolean indicating whether the user has voted on the proposal.
+    */
+    function getAllProposalData(address _user) external view returns (ProposalDetails[] memory proposalDetails) {
+        // Get the total number of active proposals
+        uint256 activeProposalCount = proposalCount;
+
+        // Initialize an array to store the details for each proposal
+        proposalDetails = new ProposalDetails[](activeProposalCount);
+
+        // Loop through each proposal to gather the relevant details
+        for (uint256 i = 0; i < activeProposalCount; i++) {
+            // Create a new ProposalDetails struct to hold the data for the current proposal
+            ProposalDetails memory details;
+
+            // Populate the details struct with data for the current proposal
+            details.totalVotes = proposalTotalVotes[i];                       // Total number of votes for the current proposal
+            details.userVotes = proposalUserTotalVotes[i][_user];             // Number of votes the specific user has cast on the proposal
+            details.hasClaimedReward = hasClaimedReward[i][_user];            // Whether the user has claimed the reward for the proposal (true/false)
+            details.votedStatus = isBoostVote[i] ? boostProposals[i].status : proposals[i].status;
+
+            // Store the details for the current proposal in the proposalDetails array
+            proposalDetails[i] = details;
+        }
+
+        // Return the array of all proposal details
+        return proposalDetails;
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -36,9 +36,21 @@ interface IGovernance {
     event BoostProposalCancelled(uint256 indexed proposalId);
     event RewardsClaimedAndLocked(address indexed sender, uint256 proposalId, uint256 rewardAmount);
     event RewardDistributionExecuted(uint256 indexed proposalId, uint256 totalReward, uint256 timestamp);
+    event VotesReset(address indexed sender, uint256 currentCycle);
 
-
+    /**
+    * @dev Resets the votes for a given user. This function will clear all vote-related data for the specified user.
+    * This could be used, for example, to allow users to re-cast their votes or to reset their voting status after a certain event.
+    * @param _user The address of the user whose votes are to be reset.
+    */
     function resetVotes(address _user) external;
-    function isBoostVote(uint256) external view returns (bool);
+
+    /**
+    * @dev Checks if the given proposal ID corresponds to a "boost vote" proposal.
+    * A boost vote might refer to a special type of vote, possibly with enhanced or different effects.
+    * @param _proposalId The ID of the proposal to be checked.
+    * @return bool True if the proposal ID is a boost vote, false otherwise.
+    */
+    function isBoostVote(uint256 _proposalId) external view returns (bool);
 
 }
