@@ -52,13 +52,14 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         Cancelled                       // Cancelled The proposal has been cancelled
     }
 
-    uint256 public proposalCount;          // Counter for proposal IDs
-    uint256 public currentCycle;           // Current voting cycle
-    address public admin;                  // The address of the contract admin
-    address public masterValidator;        // Address of the master validator contract
-    address public factory;                // Address of the factory contract
-    address public bank;                   // Address of the bank contract
-    address public token;                  // Address of the LRDS
+    uint256 public constant MAX_CYCLE_DIFFERENCE = 10;  // Maximum allowed difference
+    uint256 public proposalCount;                       // Counter for proposal IDs
+    uint256 public currentCycle;                        // Current voting cycle
+    address public admin;                               // The address of the contract admin
+    address public masterValidator;                     // Address of the master validator contract
+    address public factory;                             // Address of the factory contract
+    address public bank;                                // Address of the bank contract
+    address public token;                               // Address of the LRDS
 
     mapping(uint256 => Proposal) public proposals;                                          // Mapping from proposal ID to Proposal struct
     mapping(uint256 => ValidatorBoostProposal) public boostProposals;                       // Mapping from proposal ID to ValidatorBoostProposal struct
@@ -110,8 +111,12 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         // If the proposal period is greater than the current period, currentCycle is updated
         if (_cycle < currentCycle) revert InvalidCycle();
         
-        // If the proposal period is greater than the current period, currentCycle is updated
+        // If _cycle is greater than the current cycle, check if the difference exceeds the maximum allowed
         if (_cycle > currentCycle) {
+            // Revert if the cycle difference is too large
+            if (_cycle - currentCycle > MAX_CYCLE_DIFFERENCE) revert CycleTooLarge(); 
+            
+            // Update currentCycle to _cycle
             currentCycle = _cycle;
         }
         
@@ -156,8 +161,12 @@ contract Governance is IGovernance, Ownable2Step, ReentrancyGuard {
         // If the proposal period is greater than the current period, currentCycle is updated
         if (_cycle < currentCycle) revert InvalidCycle();
         
-        // If the proposal period is greater than the current period, currentCycle is updated
+        // If _cycle is greater than the current cycle, check if the difference exceeds the maximum allowed
         if (_cycle > currentCycle) {
+            // Revert if the cycle difference is too large
+            if (_cycle - currentCycle > MAX_CYCLE_DIFFERENCE) revert CycleTooLarge(); 
+
+            // Update currentCycle to _cycle
             currentCycle = _cycle;
         }
 

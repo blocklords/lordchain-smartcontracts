@@ -26,6 +26,7 @@ interface IGovernance {
     error ZeroVelrds();
     error RewardAlreadyDistributed();
     error InvalidCycle();
+    error CycleTooLarge();
     
     event ProposalCreated(uint256 indexed proposalId, uint256 startTime, uint256 endTime, string metadataURI, uint256 totalChoices);
     event Voted(address indexed sender, uint256 proposalId, uint256 choiceIds, uint256 weights);
